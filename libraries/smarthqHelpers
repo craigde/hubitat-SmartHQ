@@ -92,7 +92,8 @@ def refreshAppliance()
 
 def getUserId()
 {
-    return parent?.getDataValue("userId") ?: getDataValue("userId")
+    // Support both app parent (getUserIdForChild) and legacy driver parent (getDataValue)
+    return parent?.getUserIdForChild() ?: parent?.getDataValue("userId") ?: getDataValue("userId")
 }
 
 def hostPath()
