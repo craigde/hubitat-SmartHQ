@@ -18,30 +18,33 @@ limitations under the License.
 
 Change history:
 
+0.9.16 - Added TemperatureMeasurement capability and F/C unit support
 0.9.3 - tomw - Added Microwave support.  Added Sabbath mode setting for refrigerator and oven.
 0.9.2 - tomw - Make child logging follow system device setting
 0.9.0 - tomw - Initial release
 
 */
 
-metadata 
+metadata
 {
-    definition(name: "SmartHQ Oven", namespace: "tomw", author: "tomw") 
+    definition(name: "SmartHQ Oven", namespace: "tomw", author: "tomw")
     {
         capability "Actuator"
         capability "PushableButton"
         capability "Refresh"
-        
+        capability "TemperatureMeasurement"
+
         command "setSabbathMode", [[name: "Sabbath mode enable?*", type:"ENUM", constraints: [true, false]]]
-        
+
         attribute "cooktopStatus", "enum", ["on", "off"]
-        attribute "sabbathMode", "string"     
-        
+        attribute "sabbathMode", "string"
+        attribute "temperatureUnit", "enum", ["F", "C"]
+
         attribute "lowerCookMode", "string"
         attribute "lowerRawTemp", "number"
         attribute "lowerTargetTemp", "number"
         attribute "lowerTimer", "number"
-        
+
         attribute "upperCookMode", "string"
         attribute "upperRawTemp", "number"
         attribute "upperTargetTemp", "number"
@@ -99,7 +102,30 @@ def parse(item)
         case SABBATH_MODE:
             parseSabbathMode(item.value)
             break
+
+        case TEMPERATURE_UNIT:
+            parseTemperatureUnit(item.value)
+            break
     }
+}
+
+def parseTemperatureUnit(value)
+{
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        def unit = (bytes[0] == 0x00) ? "F" : "C"
+        sendEvent(name: "temperatureUnit", value: unit)
+    }
+    catch (Exception e)
+    {
+        logDebug("parseTemperatureUnit error: ${e.message}")
+    }
+}
+
+def getTemperatureUnit()
+{
+    return device.currentValue("temperatureUnit") ?: "F"
 }
 
 def parseCookMode(value, option)
@@ -107,16 +133,18 @@ def parseCookMode(value, option)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        def events = [[:]]
-        
+        def events = []
+
         def tempName = (UPPER_OVEN_COOK_MODE == option)  ? "upperTargetTemp" : "lowerTargetTemp"
+        def unit = getTemperatureUnit()
 
         if(13 == bytes.size())
         {
             parseCookState(value, option)
-            events += [name: tempName, value: decodeErdInt(subBytes(bytes, 1, 2))]
+            def temp = decodeErdInt(subBytes(bytes, 1, 2))
+            events << [name: tempName, value: temp, unit: unit]
         }
-        
+
         flushEvents(events)
     }
     catch (Exception e)
@@ -138,15 +166,24 @@ def parseRawTemp(value, option)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        def events = [[:]]
-       
-        def tempName = (UPPER_OVEN_RAW_TEMPERATURE == option) ? "upperRawTemp" : "lowerRawTemp"
+        def events = []
+
+        def isUpper = (UPPER_OVEN_RAW_TEMPERATURE == option)
+        def tempName = isUpper ? "upperRawTemp" : "lowerRawTemp"
+        def unit = getTemperatureUnit()
 
         if(2 == bytes.size())
         {
-            events += [name: tempName, value: decodeErdInt(subBytes(bytes, 0, 2))]
+            def temp = decodeErdInt(subBytes(bytes, 0, 2))
+            events << [name: tempName, value: temp, unit: unit]
+
+            // Set standard temperature attribute from upper oven (primary)
+            if(isUpper)
+            {
+                events << [name: "temperature", value: temp, unit: unit]
+            }
         }
-        
+
         flushEvents(events)
     }
     catch (Exception e)
@@ -160,15 +197,15 @@ def parseTimerVal(value, option)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        def events = [[:]]
-       
+        def events = []
+
         def timerName = (UPPER_OVEN_KITCHEN_TIMER == option) ? "upperTimer" : "lowerTimer"
 
         if(2 == bytes.size())
         {
-            events += [name: timerName, value: decodeErdInt(subBytes(bytes, 0, 2))]
+            events << [name: timerName, value: decodeErdInt(subBytes(bytes, 0, 2))]
         }
-        
+
         flushEvents(events)
     }
     catch (Exception e)
