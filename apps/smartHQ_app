@@ -1,6 +1,9 @@
 /*
 
-Copyright 2022 - tomw
+Copyright 2024 - craigde
+
+Based on original work by tomw (https://github.com/tomwpublic/hubitat_SmartHQ)
+Thank you to tomw for creating and maintaining the original SmartHQ integration.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +21,7 @@ limitations under the License.
 
 Change history:
 
-1.0.0  - Refactored from device driver to app architecture
+1.0.0  - craigde - Refactored from device driver to app architecture
 0.9.15 - tomw - Bugfixes for connection reliability
 0.9.14 - tomw - Bugfix for token failure cases
 0.9.11 - tomw - Ice Maker support
@@ -31,8 +34,8 @@ Change history:
 
 definition(
     name: "SmartHQ",
-    namespace: "tomw",
-    author: "tomw",
+    namespace: "craigde",
+    author: "craigde",
     description: "GE SmartHQ Appliance Integration",
     category: "Convenience",
     iconUrl: "",
@@ -75,8 +78,8 @@ def mainPage()
     }
 }
 
-#include tomw.smarthqHelpers
-#include tomw.wsReinitialize
+#include craigde.smarthqHelpers
+#include craigde.wsReinitialize
 
 def isLogEnable()
 {
@@ -220,7 +223,7 @@ def manageChildDevice(id, details = null)
         def devDetails = [label: details.nickname ?: details.type, isComponent:false, name:childDni(id), devType: "SmartHQ " + details.type, mac: id]
 
         // use existing child, or create it
-        def child = getChildDevice(childDni(id)) ?: addChildDevice("tomw", devDetails.devType, childDni(id), [label: devDetails.label, isComponent: false, name: devDetails.name])
+        def child = getChildDevice(childDni(id)) ?: addChildDevice("craigde", devDetails.devType, childDni(id), [label: devDetails.label, isComponent: false, name: devDetails.name])
         child?.setupDevDetails(devDetails)
 
         return child

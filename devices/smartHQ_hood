@@ -1,6 +1,9 @@
 /*
 
-Copyright 2022 - tomw
+Copyright 2024 - craigde
+
+Based on original work by tomw (https://github.com/tomwpublic/hubitat_SmartHQ)
+Thank you to tomw for creating and maintaining the original SmartHQ integration.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,13 +21,14 @@ limitations under the License.
 
 Change history:
 
+1.0.0  - craigde - Forked and updated for app-based architecture
 0.9.12 - tomw - Hood support.
 
 */
 
-metadata 
+metadata
 {
-    definition(name: "SmartHQ Hood", namespace: "tomw", author: "tomw") 
+    definition(name: "SmartHQ Hood", namespace: "craigde", author: "craigde") 
     {
         capability "FanControl"
         capability "Refresh"
@@ -37,7 +41,7 @@ metadata
     }
 }
 
-#include tomw.smarthqHelpers
+#include craigde.smarthqHelpers
 
 def lightLevelNames()
 {

@@ -1,6 +1,9 @@
 /*
 
-Copyright 2022 - tomw
+Copyright 2024 - craigde
+
+Based on original work by tomw (https://github.com/tomwpublic/hubitat_SmartHQ)
+Thank you to tomw for creating and maintaining the original SmartHQ integration.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,7 +28,7 @@ Existing users should migrate to the app and remove this device.
 
 Change history:
 
-1.0.0  - DEPRECATED - Use SmartHQ App instead
+1.0.0  - craigde - DEPRECATED - Use SmartHQ App instead
 0.9.15 - tomw - Bugfixes for connection reliability
 0.9.14 - tomw - Bugfix for token failure cases
 0.9.11 - tomw - Ice Maker support
@@ -36,9 +39,9 @@ Change history:
 
 */
 
-metadata 
+metadata
 {
-    definition(name: "SmartHQ System", namespace: "tomw", author: "tomw") 
+    definition(name: "SmartHQ System", namespace: "craigde", author: "craigde") 
     {
         capability "Actuator"
         capability "Initialize"
@@ -59,8 +62,8 @@ preferences
     }
 }
 
-#include tomw.smarthqHelpers
-#include tomw.wsReinitialize
+#include craigde.smarthqHelpers
+#include craigde.wsReinitialize
 
 def isLogEnable()
 {
