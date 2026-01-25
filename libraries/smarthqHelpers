@@ -1,9 +1,14 @@
+/*
+ * Based on original work by tomw (https://github.com/tomwpublic/hubitat_SmartHQ)
+ * Thank you to tomw for creating and maintaining the original SmartHQ integration.
+ */
+
 library (
-    author: "tomw",
+    author: "craigde",
     category: "",
     description: "SmartHQ helpers",
     name: "smarthqHelpers",
-    namespace: "tomw",
+    namespace: "craigde",
     documentationLink: ""
 )
 
@@ -92,7 +97,8 @@ def refreshAppliance()
 
 def getUserId()
 {
-    return parent?.getDataValue("userId") ?: getDataValue("userId")
+    // Support both app parent (getUserIdForChild) and legacy driver parent (getDataValue)
+    return parent?.getUserIdForChild() ?: parent?.getDataValue("userId") ?: getDataValue("userId")
 }
 
 def hostPath()

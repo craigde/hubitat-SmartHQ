@@ -1,92 +1,95 @@
 {
   "packageName": "hubitat_SmartHQ",
-  "author": "tomw",
-  "version": "0.9.15",
+  "author": "craigde",
+  "version": "1.0.0",
   "minimumHEVersion": "2.1.9",
-  "dateReleased": "2022-06-27",
+  "dateReleased": "2024-01-25",
   "bundles": [
     {
-      "id": "5b54c159-0e99-437d-8074-006e199207f7",
+      "id": "f8a2c1d4-9b3e-4f5a-8c7d-1e2f3a4b5c6d",
       "name": "hubitat_SmartHQ",
-      "namespace": "tomw",
-      "location": "https://github.com/tomwpublic/hubitat_SmartHQ/blob/main/hubitat_SmartHQ.zip?raw=true",
+      "namespace": "craigde",
+      "location": "https://github.com/craigde/hubitat-SmartHQ/blob/main/hubitat_SmartHQ.zip?raw=true",
       "required": true
+    }
+  ],
+  "apps": [
+    {
+      "id": "d1e2f3a4-b5c6-7d8e-9f0a-1b2c3d4e5f6a",
+      "name": "SmartHQ",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/apps/smartHQ_app",
+      "required": true,
+      "oauth": false
     }
   ],
   "drivers": [
     {
-      "id": "6d9d8188-e209-4bca-bb31-664ce97555d5",
-      "name": "SmartHQ System",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/smartHQ_system",
-      "required": true
-    },
-    {
-      "id": "bc42c565-c634-4472-9074-ec15fa345f55",
+      "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "name": "SmartHQ Refrigerator",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/devices/smartHQ_refrigerator",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_refrigerator",
       "required": false
     },
     {
-      "id": "50f51a03-6f93-4b1b-8550-d10edd432fd2",
+      "id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
       "name": "SmartHQ Laundry",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/devices/smartHQ_laundry",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_laundry",
       "required": false
     },
     {
-      "id": "2e67a4ee-e6f0-45a1-bea0-f72666c7129b",
+      "id": "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
       "name": "SmartHQ Oven",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/devices/smartHQ_oven",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_oven",
       "required": false
     },
     {
-      "id": "5934534f-bbf4-4ce4-985b-c4bef378d0a7",
+      "id": "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
       "name": "SmartHQ Dishwasher",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/devices/smartHQ_dishwasher",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_dishwasher",
       "required": false
     },
     {
-      "id": "1769ef8b-8096-4bb2-891a-f5cf145a248f",
+      "id": "e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b",
       "name": "SmartHQ Portable AC",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/devices/smartHQ_portableAC",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_portableAC",
       "required": false
     },
     {
-      "id": "98aaf136-b251-4199-b8b1-78abdf0135bc",
+      "id": "f6a7b8c9-d0e1-4f2a-3b4c-5d6e7f8a9b0c",
       "name": "SmartHQ Microwave",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/devices/smartHQ_microwave",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_microwave",
       "required": false
     },
     {
-      "id": "90909e9d-3b13-41f0-95df-24e1697c3a2e",
+      "id": "a7b8c9d0-e1f2-4a3b-4c5d-6e7f8a9b0c1d",
       "name": "SmartHQ Home Water Filter",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/devices/smartHQ_homeWaterFilter",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_homeWaterFilter",
       "required": false
     },
     {
-      "id": "3e3ffefb-f199-49ea-beed-b5d6eb1dbf5d",
+      "id": "b8c9d0e1-f2a3-4b4c-5d6e-7f8a9b0c1d2e",
       "name": "SmartHQ Ice Maker",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/devices/smartHQ_iceMaker",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_iceMaker",
       "required": false
     },
     {
-      "id": "37428701-30dc-43b6-8dda-c91194551ec4",
+      "id": "c9d0e1f2-a3b4-4c5d-6e7f-8a9b0c1d2e3f",
       "name": "SmartHQ Hood",
-      "namespace": "tomw",
-      "location": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/devices/smartHQ_hood",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_hood",
       "required": false
     }
   ],
-  "licenseFile": "https://raw.githubusercontent.com/tomwpublic/hubitat_SmartHQ/main/LICENSE",
-  "releaseNotes": "0.9.15 - tomw - Bugfixes for connection reliability.\n0.9.14 - tomw - Bugfix for token failure cases.\n0.9.13 - tomw - Bugfix for websocket failure case.\n0.9.12 - tomw - Hood support.\n0.9.11 - tomw - Ice Maker support.\n0.9.10 - tomw - Added selectable region for login.\n0.9.9 - tomw - Flow rate and daily usage for Home Water Filter.\n0.9.8 - tomw - Home Water Filter suppport.\n0.9.7 - gassgs and tomw - Dishwasher commands for start, stop, and pod count management.\n0.9.6 - tomw - Additional attributes for dishwasher.\n0.9.5 - tomw - Improved Washer/Dryer support (in SmartHQ Laundry driver).\n0.9.4 - tomw - Improved air conditioner support.\n0.9.3 - tomw - Added Microwave support.  Added Sabbath mode setting for refrigerator and oven.\n0.9.2 - tomw - Make child logging follow system device setting.\n0.9.1 - tomw - Added support for Portable AC.\n0.9.0 - tomw - Initial release.",
-  "documentationLink": "https://github.com/tomwpublic/hubitat_SmartHQ/blob/main/README.md",
+  "licenseFile": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/LICENSE",
+  "releaseNotes": "1.0.0 - craigde - Forked from tomw's original. Refactored to app-based architecture. Added TemperatureMeasurement capability to oven. Added F/C temperature unit support.\n\nOriginal version history (tomw):\n0.9.15 - Bugfixes for connection reliability.\n0.9.14 - Bugfix for token failure cases.\n0.9.13 - Bugfix for websocket failure case.\n0.9.12 - Hood support.\n0.9.11 - Ice Maker support.\n0.9.10 - Added selectable region for login.\n0.9.9 - Flow rate and daily usage for Home Water Filter.\n0.9.8 - Home Water Filter support.\n0.9.7 - Dishwasher commands for start, stop, and pod count management.\n0.9.6 - Additional attributes for dishwasher.\n0.9.5 - Improved Washer/Dryer support.\n0.9.4 - Improved air conditioner support.\n0.9.3 - Added Microwave support. Added Sabbath mode setting.\n0.9.2 - Make child logging follow system device setting.\n0.9.1 - Added support for Portable AC.\n0.9.0 - Initial release.",
+  "documentationLink": "https://github.com/craigde/hubitat-SmartHQ/blob/main/README.md",
   "communityLink": "https://community.hubitat.com/t/support-for-ge-appliances-smarthq/85930/12"
 }
