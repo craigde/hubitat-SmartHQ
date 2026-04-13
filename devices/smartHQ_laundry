@@ -93,20 +93,41 @@ def parse(item)
 
 def parseMachineState(value)
 {
-    def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)    
-    sendEvent(name: "machineState", value: machineStates[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown")
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        sendEvent(name: "machineState", value: machineStates[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown")
+    }
+    catch (Exception e)
+    {
+        logDebug("parseMachineState error: ${e.message}")
+    }
 }
 
 def parseDoorLock(value)
 {
-    def doorLock = decodeErdBool(hubitat.helper.HexUtils.hexStringToByteArray(value)?.getAt(0)) ? "locked" : "unlocked"
-    sendEvent(name: "doorLock", value: doorLock)    
+    try
+    {
+        def doorLock = decodeErdBool(hubitat.helper.HexUtils.hexStringToByteArray(value)?.getAt(0)) ? "locked" : "unlocked"
+        sendEvent(name: "doorLock", value: doorLock)
+    }
+    catch (Exception e)
+    {
+        logDebug("parseDoorLock error: ${e.message}")
+    }
 }
 
 def parseSmartDispenseTankStatus(value)
 {
-    def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)    
-    sendEvent(name: "smartDispenseTankStatus", value: smartDispenseTankStatuses[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown")
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        sendEvent(name: "smartDispenseTankStatus", value: smartDispenseTankStatuses[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown")
+    }
+    catch (Exception e)
+    {
+        logDebug("parseSmartDispenseTankStatus error: ${e.message}")
+    }
 }
 
 import groovy.transform.Field

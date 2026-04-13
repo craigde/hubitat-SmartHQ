@@ -70,58 +70,69 @@ def parse(item)
     {
         return
     }
-    
+
     logDebug(item)
-    
-    def switchVal = item.erd?.toLowerCase()
-    switch(switchVal)
+
+    try
     {
-        case WH_FILTER_VALVE_STATE:
-            vState = parseOptionVal(item.value, "valveState", knownValveStates)
-        
-            valve = ["bypass", "filtered", "manual override", "driving"].contains(vState) ? "open" : "closed"
-            sendEvent(name: "valve", value: valve)        
-            break
-        
-        case WH_FILTER_MODE:
-            parseOptionVal(item.value, "filterMode", knownFilterModes)
-            break
-        
-        case WH_FILTER_POSITION:
-            parseOptionVal(item.value, "position", knownPositions)
-            break
-        
-        case WH_FILTER_LIFE_REMAINING:
-            fBytes = hubitat.helper.HexUtils.hexStringToByteArray(item.value)
-            filterLife = decodeErdInt(subBytes(fBytes, 0, 4))
-            // if less than 5% remaining, mark as "replace"
-            sendEvent(name: "filterStatus", value: (filterLife < 5) ? "replace" : "normal")
-            sendEvent(name: "filterLifePercentage", value: filterLife)
-            break
-        
-        case WH_FILTER_FLOW_RATE:
-            fBytes = hubitat.helper.HexUtils.hexStringToByteArray(item.value)
-            rate = decodeErdInt(subBytes(fBytes, 0, 2))?.toInteger()
-            rate = rate / 100
-            sendEvent(name: "rate", value: rate)
-            break
-        
-        case WH_FILTER_DAY_USAGE:
-            fBytes = hubitat.helper.HexUtils.hexStringToByteArray(item.value)
-            usage = decodeErdInt(subBytes(fBytes, 0, 2))?.toInteger()
-            sendEvent(name: "usageLastDay", value: usage)
-            break
+        def switchVal = item.erd?.toLowerCase()
+        switch(switchVal)
+        {
+            case WH_FILTER_VALVE_STATE:
+                def vState = parseOptionVal(item.value, "valveState", knownValveStates)
+                def valve = ["bypass", "filtered", "manual override", "driving"].contains(vState) ? "open" : "closed"
+                sendEvent(name: "valve", value: valve)
+                break
+
+            case WH_FILTER_MODE:
+                parseOptionVal(item.value, "filterMode", knownFilterModes)
+                break
+
+            case WH_FILTER_POSITION:
+                parseOptionVal(item.value, "position", knownPositions)
+                break
+
+            case WH_FILTER_LIFE_REMAINING:
+                def fBytes = hubitat.helper.HexUtils.hexStringToByteArray(item.value)
+                def filterLife = decodeErdInt(subBytes(fBytes, 0, 4))
+                // if less than 5% remaining, mark as "replace"
+                sendEvent(name: "filterStatus", value: (filterLife < 5) ? "replace" : "normal")
+                sendEvent(name: "filterLifePercentage", value: filterLife)
+                break
+
+            case WH_FILTER_FLOW_RATE:
+                def fBytes = hubitat.helper.HexUtils.hexStringToByteArray(item.value)
+                def rate = decodeErdInt(subBytes(fBytes, 0, 2))?.toInteger() / 100
+                sendEvent(name: "rate", value: rate)
+                break
+
+            case WH_FILTER_DAY_USAGE:
+                def fBytes = hubitat.helper.HexUtils.hexStringToByteArray(item.value)
+                def usage = decodeErdInt(subBytes(fBytes, 0, 2))?.toInteger()
+                sendEvent(name: "usageLastDay", value: usage)
+                break
+        }
+    }
+    catch (Exception e)
+    {
+        logDebug("parse error: ${e.message}")
     }
 }
 
 def parseOptionVal(value, attrName, options)
 {
-    def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-    
-    def vState = options.getAt(decodeErdInt(subBytes(bytes, 0, 1)))    
-    sendEvent(name: attrName, value: (null != vState) ? vState : "unknown")
-    
-    return vState
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        def vState = options.getAt(decodeErdInt(subBytes(bytes, 0, 1)))
+        sendEvent(name: attrName, value: (null != vState) ? vState : "unknown")
+        return vState
+    }
+    catch (Exception e)
+    {
+        logDebug("parseOptionVal error: ${e.message}")
+        return null
+    }
 }
 
 def open()

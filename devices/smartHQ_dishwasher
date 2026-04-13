@@ -36,7 +36,7 @@ metadata
         capability "ContactSensor"
         capability "Refresh"
         
-        command "adjustNumberOfPods", [[name:"Operation", type:"ENUM", constraints: ["add","subtract","set"]], [name: "numberOfPods*", type:"NUMBER"]]
+        command "adjustNumberOfPods", [[name:"Operation*", type:"ENUM", constraints: ["add","subtract","set"]], [name: "numberOfPods*", type:"NUMBER"]]
         
         command "setControlLock", [[name: "Control Lockout?*", type:"ENUM", constraints: [true, false]]]
         attribute "controlPanel", "string"
@@ -119,44 +119,53 @@ def parse(item)
 
 def parseCycleState(value)
 {
-    def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-    
-    def cState = knownStates[decodeErdInt(subBytes(bytes, 0, 1))]
-    
-    sendEvent(name: "cycleState", value: (null != cState) ? cState : "unknown")
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        def cState = knownStates[decodeErdInt(subBytes(bytes, 0, 1))]
+        sendEvent(name: "cycleState", value: (null != cState) ? cState : "unknown")
+    }
+    catch (Exception e)
+    {
+        logDebug("parseCycleState error: ${e.message}")
+    }
 }
 
 def parseMode(value)
 {
-    def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-    
-    def mode = knownModes[decodeErdInt(subBytes(bytes, 0, 1))]
-    
-    sendEvent(name: "mode", value: (null != mode) ? mode : "unknown")
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        def mode = knownModes[decodeErdInt(subBytes(bytes, 0, 1))]
+        sendEvent(name: "mode", value: (null != mode) ? mode : "unknown")
+    }
+    catch (Exception e)
+    {
+        logDebug("parseMode error: ${e.message}")
+    }
 }
 
 def parseUserSetting(value)
 {
-    value = decodeErdInt(hubitat.helper.HexUtils.hexStringToByteArray(value))
-    
-    def bottle_jet = UserSetting.getAt(value & 1)
-    def cycleMode = UserCycleSetting.getAt((value & 0x0E) >> 1)
-    def sabbath = UserSetting.getAt((value & 0x40) >> 6)
-    def presoak = UserSetting.getAt((value & 0x100) >> 8)
-    def lock_control = UserSetting.getAt((value & 0x200) >> 9)
-    def dry_option = UserDryOptionSetting.getAt((value & 0xC00) >> 10)
-    def wash_temp = UserWashTempSetting.getAt((value & 0x3000) >> 12)
-    def delay_hours = ((value & 0xF0000) >> 16)
-    def wash_zone = UserWashZoneSetting.getAt((value & 0x300000) >> 20)
-    def sound = SoundSetting.getAt((value & 0x800000) >> 23)
-    
-    def events = [[:]]
-    
-    events += [name: "cycleMode", value: cycleMode]
-    events += [name: "delayHours", value: delay_hours]
-    events += [name: "sound", value: (null != sound) ? sound : "unknown"]
-    
-    flushEvents(events)
+    try
+    {
+        def packed = decodeErdInt(hubitat.helper.HexUtils.hexStringToByteArray(value))
+
+        def cycleMode = UserCycleSetting.getAt((packed & 0x0E) >> 1)
+        def delay_hours = ((packed & 0xF0000) >> 16)
+        def sound = SoundSetting.getAt((packed & 0x800000) >> 23)
+
+        def events = []
+        events += [name: "cycleMode", value: (null != cycleMode) ? cycleMode : "unknown"]
+        events += [name: "delayHours", value: delay_hours]
+        events += [name: "sound", value: (null != sound) ? sound : "unknown"]
+
+        flushEvents(events)
+    }
+    catch (Exception e)
+    {
+        logDebug("parseUserSetting error: ${e.message}")
+    }
 }
 
 def start()

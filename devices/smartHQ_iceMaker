@@ -59,36 +59,35 @@ def parse(item)
     {
         return
     }
-    
+
     logDebug(item)
-    
+
     switch(item.erd?.toLowerCase())
     {
         case OIM_LIGHT_LEVEL:
             parseIntegerErd(item.value, 1, knownLightLevels, "lightLevel")
             break
-        
+
         case OIM_FILTER_STATUS:
             parseIntegerErd(item.value, 1, knownFilterStatuses, "filterStatus")
             break
-        
+
         case OIM_STATUS:
             parseIntegerErd(item.value, 1, knownStatuses, "currentStatus")
             break
-        
+
         case OIM_POWER:
-            def switchVal = decodeErdBool(hubitat.helper.HexUtils.hexStringToByteArray(item.value)?.getAt(0)) ? "on" : "off"
-            sendEvent(name: "switch", value: switchVal)
+            try
+            {
+                def switchVal = decodeErdBool(hubitat.helper.HexUtils.hexStringToByteArray(item.value)?.getAt(0)) ? "on" : "off"
+                sendEvent(name: "switch", value: switchVal)
+            }
+            catch (Exception e)
+            {
+                logDebug("OIM_POWER parse error: ${e.message}")
+            }
             break
     }
-}
-
-def parseIntegerErd(value, width, options, eventName)
-{
-    def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)    
-    def cState = options[decodeErdInt(subBytes(bytes, 0, width))]
-    
-    sendEvent(name: eventName, value: (null != cState) ? cState : "unknown")
 }
 
 def on()
@@ -105,7 +104,7 @@ def setPowerState(state)
 {
     def erdVal = encodeErdInt(state, 1)
     def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(OIM_POWER, erdVal))
-    
+
     parent?.sendWssMap(erdMap)
 }
 
@@ -114,22 +113,7 @@ def setLightLevel(state)
     setIntegerErd(state, knownLightLevels, OIM_LIGHT_LEVEL)
 }
 
-def setIntegerErd(val, options, erd)
-{
-    def intVal = options.find {val == it.value}?.key?.toInteger()
-    
-    if(null == intVal)
-    {
-        // unsupported value sent, so discarding
-        log.debug "invalid setting (${val})"
-        return
-    }
-    
-    def erdVal = encodeErdInt(intVal, 1)
-    def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(erd, erdVal))
-    
-    parent?.sendWssMap(erdMap)
-}
+// setIntegerErd / parseIntegerErd are provided by smarthqHelpers
 
 import groovy.transform.Field
 

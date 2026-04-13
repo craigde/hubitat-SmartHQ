@@ -106,36 +106,47 @@ def parseMicrowaveState(value)
 def adjustMicrowaveState(state)
 {
     def status = cookStatuses.find { it.value == state }?.key
-    
     if(null == status)
     {
+        log.warn "adjustMicrowaveState: unsupported status '${state}'"
         return
     }
-    
-    // update other attributes...
-    refresh()
-    pauseExecution(500)
-    
-    def mode = cookModes.find { it.value == device.currentValue("cookMode") }?.key
+
+    // The MICROWAVE_STATE ERD packs status, mode, door, and power level into
+    // a single setter. We need the current values for the fields we're not
+    // changing. Read whatever the last parse() call cached - blocking on a
+    // refresh response is unreliable (the WebSocket is async) and earlier
+    // versions used pauseExecution(500) which both blocked the hub thread
+    // and gave no real guarantee the data would have arrived.
+    def currentMode = device.currentValue("cookMode")
+    def mode = cookModes.find { it.value == currentMode }?.key
     if(null == mode)
     {
+        log.warn "adjustMicrowaveState: cookMode unknown (current='${currentMode}'); refresh and retry"
+        refresh()
         return
     }
-    
+
     def door = (device.currentValue("doorStatus") == "open") ? 1 : 0
-    def pl = device.currentValue("powerLevel").toInteger()
+    def plRaw = device.currentValue("powerLevel")
+    if(null == plRaw)
+    {
+        log.warn "adjustMicrowaveState: powerLevel unknown; refresh and retry"
+        refresh()
+        return
+    }
+    def pl = plRaw.toInteger()
     def temp = "0000"
-    
-    // ...then build message
-    def value = 
+
+    def value =
         encodeErdInt(status, 1) +
         encodeErdInt(mode, 1) +
         encodeErdInt(door, 1) +
         encodeErdInt(pl, 1) +
         temp
-    
+
     def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(MICROWAVE_STATE, value))
-    
+
     parent?.sendWssMap(erdMap)
 }
 

@@ -1,6 +1,11 @@
 /*
  * Based on original work by tomw (https://github.com/tomwpublic/hubitat_SmartHQ)
  * Thank you to tomw for creating and maintaining the original SmartHQ integration.
+ *
+ * This library is included by every SmartHQ device driver. It contains only
+ * pure utility code (ERD encode/decode, message construction, common parse
+ * helpers). OAuth credentials and the login flow live in the app, not here,
+ * so drivers don't carry secrets they never use.
  */
 
 library (
@@ -14,13 +19,7 @@ library (
 
 import groovy.transform.Field
 
-@Field client_id        = "564c31616c4f7474434b307435412b4d2f6e7672"
-@Field client_secret    = "6476512b5246446d452f697154444941387052645938466e5671746e5847593d"
-@Field redirect_uri     = "brillion.4e617a766474657344444e562b5935566e51324a://oauth/redirect"
-@Field cookie1          = "abgea_region=us-east-1; Domain=accounts.brillion.geappliances.com; HttpOnly; Path=/; Secure"
-
-@Field loginUrl         = "https://accounts.brillion.geappliances.com"
-@Field apiUrl           = "https://api.brillion.geappliances.com"
+@Field apiUrl = "https://api.brillion.geappliances.com"
 
 @Field doorNormallyOpen      =  0x0001
 @Field doorNormallyClosed    =  0x0002
@@ -39,10 +38,10 @@ def setupDevDetails(details)
     {
         return
     }
-    
+
     device.setLabel(details.label)
     device.setName(details.devType)
-    
+
     device.updateDataValue("mac", details.mac)
 }
 
@@ -69,8 +68,9 @@ def encodeErdInt(val, minBytes)
 def decodeErdSignedByte(byte val)
 {
     def intVal = decodeErdInt(val)
-    
-    return (intVal <= 128) ? intVal : (intVal - 256) 
+
+    // signed byte: 0..127 are positive, 128..255 are negative (two's complement)
+    return (intVal < 128) ? intVal : (intVal - 256)
 }
 
 def encodeErdBool(boolean val)
@@ -97,13 +97,12 @@ def refreshAppliance()
 
 def getUserId()
 {
-    // Support both app parent (getUserIdForChild) and legacy driver parent (getDataValue)
-    return parent?.getUserIdForChild() ?: parent?.getDataValue("userId") ?: getDataValue("userId")
+    return parent?.getUserIdForChild()
 }
 
 def hostPath()
 {
-    apiUrl.split("//")?.getAt(1)    
+    apiUrl.split("//")?.getAt(1)
 }
 
 def buildDevDetails()
@@ -114,29 +113,29 @@ def buildDevDetails()
             mac: device.getDataValue("mac"),
             host: hostPath()
         ]
-    
+
     return details
 }
 
 def buildErdDetails(code, value)
 {
-    def details = 
+    def details =
         [
             code: code,
             value: value
         ]
-    
+
     return details
 }
 
 def buildCmdDetails(cmd, data = [])
 {
-    def details = 
+    def details =
         [
             cmd: cmd,
             data: data
         ]
-    
+
     return details
 }
 
@@ -151,7 +150,7 @@ def buildWssMsg(method, path, id, body = null)
             path: path,
             id: id
         ]
-    
+
     if(body)
     {
         msg.put("body", body)
@@ -166,9 +165,9 @@ def buildErdSetter(devDetails, erdDetails)
     {
         return
     }
-    
+
     def erdCodeString = erdDetails.code?.toUpperCase()?.replace("0X", "0x")
-    
+
     def body =
         [
             kind: "appliance#erdListEntry",
@@ -179,11 +178,11 @@ def buildErdSetter(devDetails, erdDetails)
             ackTimeout: 10,
             delay: 0
         ]
-    
+
     def path = "/v1/appliance/${devDetails.mac}/erd/${erdCodeString}"
     def id = "${devDetails.mac}-setErd-${erdCodeString}"
     def message = buildWssMsg("POST", path, id, body)
-    
+
     return message
 }
 
@@ -193,7 +192,7 @@ def buildAppCtrlSetter(devDetails, cmdDetails)
     {
         return
     }
-    
+
     def body =
         [
             kind: "appliance#control",
@@ -204,11 +203,11 @@ def buildAppCtrlSetter(devDetails, cmdDetails)
             ackTimeout: 10,
             delay: 0
         ]
-    
+
     def path = "/v1/appliance/${devDetails.mac}/control/${cmdDetails.cmd}"
     def id = ""
     def message = buildWssMsg("POST", path, id, body)
-    
+
     return message
 }
 
@@ -221,8 +220,13 @@ def flushEvents(events)
 {
     events.each
     {
-        sendEvent(it)
-    }  
+        // skip empty/incomplete maps so accidental [[:]] initializers don't
+        // produce sendEvent calls with null name/value
+        if(it?.name)
+        {
+            sendEvent(it)
+        }
+    }
 }
 
 def parseDoorStatusByte(value, type)
@@ -234,16 +238,16 @@ def parseDoorStatusByte(value, type)
         {
             return
         }
-        
+
         def val = "NA"
         def nClosed = (type == doorNormallyClosed)
-        
+
         val = nClosed ? doorNCStatus(bytes[0]) : doorNOStatus(bytes[0])
-        
-        def events = [[:]] 
+
+        def events = []
         events += [name: "contact", value: val]
         events += [name: "doorStatus", value: val]
-        
+
         flushEvents(events)
     }
     catch (Exception e)
@@ -262,7 +266,7 @@ def doorNCStatus(val)
             return "closed"
         default:
             return "NA"
-    }    
+    }
 }
 
 def doorNOStatus(val)
@@ -275,14 +279,14 @@ def doorNOStatus(val)
             return "closed"
         default:
             return "NA"
-    }    
+    }
 }
 
 def setBooleanErd(erd, boolean value)
 {
     def strVal = encodeErdBool(value)
     def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(erd, strVal))
-    
+
     parent?.sendWssMap(erdMap)
 }
 
@@ -294,10 +298,16 @@ def setSabbathMode(value)
 
 def parseSabbathMode(value)
 {
-    value = hubitat.helper.HexUtils.hexStringToByteArray(value)
-    value = decodeErdBool(value?.getAt(0)) ? "enabled" : "disabled"
-    
-    sendEvent(name: "sabbathMode", value: value)
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        def label = decodeErdBool(bytes?.getAt(0)) ? "enabled" : "disabled"
+        sendEvent(name: "sabbathMode", value: label)
+    }
+    catch (Exception e)
+    {
+        logDebug("parseSabbathMode: ${e.message}")
+    }
 }
 
 def setSoundLevel(value)
@@ -314,10 +324,57 @@ def setControlLock(value)
 
 def parseControlLock(value)
 {
-    value = hubitat.helper.HexUtils.hexStringToByteArray(value)
-    value = decodeErdBool(value?.getAt(0)) ? "locked" : "unlocked"
-    
-    sendEvent(name: "controlPanel", value: value)
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        def label = decodeErdBool(bytes?.getAt(0)) ? "locked" : "unlocked"
+        sendEvent(name: "controlPanel", value: label)
+    }
+    catch (Exception e)
+    {
+        logDebug("parseControlLock: ${e.message}")
+    }
+}
+
+//
+// Generic ERD helpers used by enum-style attributes (light level, fan speed,
+// etc). Previously duplicated in portableAC, iceMaker, and hood drivers.
+//
+
+def parseIntegerErd(value, width, options, eventName)
+{
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        def label = options[decodeErdInt(subBytes(bytes, 0, width))]
+
+        def eventVal = (null != label) ? label : "unknown"
+        sendEvent(name: eventName, value: eventVal)
+
+        return eventVal
+    }
+    catch (Exception e)
+    {
+        logDebug("parseIntegerErd: ${e.message}")
+        return null
+    }
+}
+
+def setIntegerErd(val, options, erd)
+{
+    def intVal = options.find { val == it.value }?.key?.toInteger()
+
+    if(null == intVal)
+    {
+        // unsupported value sent, so discarding
+        logDebug("invalid setting (${val})")
+        return
+    }
+
+    def erdVal = encodeErdInt(intVal, 1)
+    def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(erd, erdVal))
+
+    parent?.sendWssMap(erdMap)
 }
 
 @Field APPLIANCE_TYPE = "0x0008"
