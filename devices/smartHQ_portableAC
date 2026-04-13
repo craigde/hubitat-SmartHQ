@@ -80,8 +80,10 @@ def refresh()
 
 def setCoolingSetpoint(temp)
 {
+    // Adjust the target temperature without forcing a mode change. Forcing
+    // "cool" here would silently override modes like energy_saver or dry that
+    // the user may have explicitly selected.
     adjustSetpoint(temp)
-    setOperatingMode("cool")    
 }
 
 def parse(item)
@@ -153,7 +155,7 @@ def parseTemp(value, option)
                 break
         }
 
-        eventNames.each{ sendEvent(name: it, value: decodeErdInt(bytes)) }
+        eventNames.each{ sendEvent(name: it, value: decodeErdInt(bytes), unit: "F") }
     }
     catch (Exception e)
     {
@@ -166,12 +168,13 @@ def parseOperatingMode(value)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        sendEvent(name: "thermostatOperatingState", value: operationModes[decodeErdInt(bytes[0]).toInteger()])
+        def label = operationModes[decodeErdInt(bytes[0]).toInteger()]
+        sendEvent(name: "thermostatOperatingState", value: label ?: "unknown")
     }
     catch (Exception e)
     {
         logDebug("parse error: ${e.message}")
-    }  
+    }
 }
 
 def parseFanSetting(value)
@@ -179,19 +182,37 @@ def parseFanSetting(value)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        sendEvent(name: "speed", value: fanSettings[decodeErdInt(bytes[0]).toInteger()])
+        def label = fanSettings[decodeErdInt(bytes[0]).toInteger()]
+        sendEvent(name: "speed", value: label ?: "unknown")
     }
     catch (Exception e)
     {
         logDebug("parse error: ${e.message}")
-    }  
+    }
 }
+
+// Conservative range for portable AC setpoints (degrees F).
+@groovy.transform.Field static final AC_MIN_F = 60
+@groovy.transform.Field static final AC_MAX_F = 86
 
 def adjustSetpoint(temp)
 {
-    def value = encodeErdInt(temp.toInteger(), 2)
+    if(temp == null)
+    {
+        log.warn "adjustSetpoint requires a temperature"
+        return
+    }
+
+    def t = temp.toInteger()
+    if(t < AC_MIN_F || t > AC_MAX_F)
+    {
+        log.warn "AC setpoint ${t} out of range (${AC_MIN_F}..${AC_MAX_F})"
+        return
+    }
+
+    def value = encodeErdInt(t, 2)
     def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(AC_TARGET_TEMPERATURE, value))
-    
+
     parent?.sendWssMap(erdMap)
 }
 
@@ -209,26 +230,11 @@ def setPowerStatus(boolean mode)
 {
     def value = encodeErdInt(mode ? 1 : 0, 1)
     def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(AC_POWER_STATUS, value))
-    
-    parent?.sendWssMap(erdMap)    
+
+    parent?.sendWssMap(erdMap)
 }
 
-def setIntegerErd(val, options, erd)
-{
-    def intVal = options.find {val == it.value}?.key?.toInteger()
-    
-    if(null == intVal)
-    {
-        // unsupported value sent, so discarding
-        log.debug "invalid setting (${val})"
-        return
-    }
-    
-    def erdVal = encodeErdInt(intVal, 1)
-    def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(erd, erdVal))
-    
-    parent?.sendWssMap(erdMap)     
-}
+// setIntegerErd is provided by the smarthqHelpers library
 
 def fanAuto()
 {
@@ -262,7 +268,7 @@ def setOperatingMode(opMode)
 
 def cycleSpeed()
 {
-    log.debug "cycleSpeed() not supported"
+    logDebug("cycleSpeed() not supported")
 }
 
 import groovy.transform.Field

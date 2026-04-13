@@ -49,7 +49,8 @@ metadata
         attribute "fridgeSetpoint", "number"
         
         attribute "airFilterStatus", "string"
-        attribute "waterFilterStatus", "string"        
+        attribute "waterFilterStatus", "string"
+        attribute "sabbathMode", "string"
     }
 }
 
@@ -85,6 +86,10 @@ def parse(item)
         case WATER_FILTER_STATUS:
             parseFilterStatus(item.value, switchVal)
             break
+
+        case SABBATH_MODE:
+            parseSabbathMode(item.value)
+            break
     }
 }
 
@@ -93,7 +98,7 @@ def parseDoorStatus(value)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        def events = [[:]]
+        def events = []
         if(4 == bytes.size())
         {
             events += [name: "leftDoor", value: doorNCStatus(bytes[0])]
@@ -101,7 +106,7 @@ def parseDoorStatus(value)
             events += [name: "freezer", value: doorNCStatus(bytes[2])]
             events += [name: "drawer", value: doorNCStatus(bytes[3])]
         }
-        
+
         flushEvents(events)
     }
     catch (Exception e)
@@ -115,22 +120,22 @@ def parseTemps(value, option)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        def events = [[:]]
+        def events = []
         if(2 == bytes.size())
         {
             def fridgeAttr = (CURRENT_TEMPERATURE == option) ? "fridgeActual" : "fridgeSetpoint"
             def freezerAttr = (CURRENT_TEMPERATURE == option) ? "freezerActual" : "freezerSetpoint"
-            
-            events += [name: fridgeAttr, value: decodeErdSignedByte(bytes[0])]
-            events += [name: freezerAttr, value: decodeErdSignedByte(bytes[1])]
+
+            events += [name: fridgeAttr, value: decodeErdSignedByte(bytes[0]), unit: "F"]
+            events += [name: freezerAttr, value: decodeErdSignedByte(bytes[1]), unit: "F"]
         }
-        
+
         flushEvents(events)
     }
     catch (Exception e)
     {
         logDebug("parse error: ${e.message}")
-    }    
+    }
 }
 
 def parseFilterStatus(value, option)
@@ -138,23 +143,52 @@ def parseFilterStatus(value, option)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        
+        if(bytes.size() < 2) { return }
+
         def filterName = (AIR_FILTER_STATUS == option) ? "airFilterStatus" : "waterFilterStatus"
-        
-        def status = ((0 == bytes[0]) ? bytes[1] : bytes[0]).toInteger()        
-        sendEvent(name: filterName, value: filterStatus[status])
+
+        def status = ((0 == bytes[0]) ? bytes[1] : bytes[0]).toInteger()
+        sendEvent(name: filterName, value: filterStatus[status] ?: "unknown")
     }
     catch (Exception e)
     {
         logDebug("parse error: ${e.message}")
-    }    
+    }
 }
+
+// Conservative ranges for residential US refrigerators / freezers (degrees F).
+// The appliance enforces its own limits but bounds checking here prevents the
+// command from sending obvious nonsense / wrapped byte values.
+@groovy.transform.Field static final FRIDGE_MIN_F = 33
+@groovy.transform.Field static final FRIDGE_MAX_F = 47
+@groovy.transform.Field static final FREEZER_MIN_F = -6
+@groovy.transform.Field static final FREEZER_MAX_F = 8
 
 def adjustSetpoints(fridge, freezer)
 {
-    def value = encodeErdSignedByte(fridge.toInteger()) + encodeErdSignedByte(freezer.toInteger())
+    if(fridge == null || freezer == null)
+    {
+        log.warn "adjustSetpoints requires both fridge and freezer values"
+        return
+    }
+
+    def f = fridge.toInteger()
+    def fz = freezer.toInteger()
+
+    if(f < FRIDGE_MIN_F || f > FRIDGE_MAX_F)
+    {
+        log.warn "fridge setpoint ${f} out of range (${FRIDGE_MIN_F}..${FRIDGE_MAX_F})"
+        return
+    }
+    if(fz < FREEZER_MIN_F || fz > FREEZER_MAX_F)
+    {
+        log.warn "freezer setpoint ${fz} out of range (${FREEZER_MIN_F}..${FREEZER_MAX_F})"
+        return
+    }
+
+    def value = encodeErdSignedByte(f) + encodeErdSignedByte(fz)
     def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(TEMPERATURE_SETTING, value))
-    
+
     parent?.sendWssMap(erdMap)
 }
 

@@ -1,9 +1,9 @@
 {
   "packageName": "hubitat_SmartHQ",
   "author": "craigde",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minimumHEVersion": "2.1.9",
-  "dateReleased": "2024-01-25",
+  "dateReleased": "2026-04-13",
   "bundles": [
     {
       "id": "f8a2c1d4-9b3e-4f5a-8c7d-1e2f3a4b5c6d",
@@ -89,7 +89,7 @@
     }
   ],
   "licenseFile": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/LICENSE",
-  "releaseNotes": "1.0.0 - craigde - Forked from tomw's original. Refactored to app-based architecture. Added TemperatureMeasurement capability to oven. Added F/C temperature unit support.\n\nOriginal version history (tomw):\n0.9.15 - Bugfixes for connection reliability.\n0.9.14 - Bugfix for token failure cases.\n0.9.13 - Bugfix for websocket failure case.\n0.9.12 - Hood support.\n0.9.11 - Ice Maker support.\n0.9.10 - Added selectable region for login.\n0.9.9 - Flow rate and daily usage for Home Water Filter.\n0.9.8 - Home Water Filter support.\n0.9.7 - Dishwasher commands for start, stop, and pod count management.\n0.9.6 - Additional attributes for dishwasher.\n0.9.5 - Improved Washer/Dryer support.\n0.9.4 - Improved air conditioner support.\n0.9.3 - Added Microwave support. Added Sabbath mode setting.\n0.9.2 - Make child logging follow system device setting.\n0.9.1 - Added support for Portable AC.\n0.9.0 - Initial release.",
+  "releaseNotes": "1.0.1 - craigde - Architectural cleanup and reliability/security fixes. Removed deprecated SmartHQ System driver. Inlined WebSocket reconnection and OAuth code into the app (out of the shared helpers library) so device drivers no longer carry credentials. Restructured smarthqHelpers as pure utilities. WebSocket: reconnect on generic init failures (no longer dies after a NullPointerException), unschedule on init/uninstall to prevent schedule pile-up, defer subscribe/list to status:open so we don't send over an unopened socket, validate WSS endpoint before connect, clamp token-refresh re-auth delay. Auth: concatenate region + JSESSION cookies into a single Cookie header (Groovy map literal was silently dropping the region cookie). Drivers: bounds-check refrigerator and portable AC setpoints, stop forcing 'cool' mode in setCoolingSetpoint, fix decodeErdSignedByte off-by-one (0x80 now -128 not +128), drop blocking pauseExecution in microwave, wrap unprotected parse methods in try/catch, fix hood cycleSpeed null check, declare missing sabbathMode attribute on refrigerator, init numberOfButtons on oven, fix flushEvents skipping empty initializer entries, add F units to refrigerator/AC temperature events, dedupe setIntegerErd/parseIntegerErd into helpers.\n\n1.0.0 - craigde - Forked from tomw's original. Refactored to app-based architecture. Added TemperatureMeasurement capability to oven. Added F/C temperature unit support.\n\nOriginal version history (tomw):\n0.9.15 - Bugfixes for connection reliability.\n0.9.14 - Bugfix for token failure cases.\n0.9.13 - Bugfix for websocket failure case.\n0.9.12 - Hood support.\n0.9.11 - Ice Maker support.\n0.9.10 - Added selectable region for login.\n0.9.9 - Flow rate and daily usage for Home Water Filter.\n0.9.8 - Home Water Filter support.\n0.9.7 - Dishwasher commands for start, stop, and pod count management.\n0.9.6 - Additional attributes for dishwasher.\n0.9.5 - Improved Washer/Dryer support.\n0.9.4 - Improved air conditioner support.\n0.9.3 - Added Microwave support. Added Sabbath mode setting.\n0.9.2 - Make child logging follow system device setting.\n0.9.1 - Added support for Portable AC.\n0.9.0 - Initial release.",
   "documentationLink": "https://github.com/craigde/hubitat-SmartHQ/blob/main/README.md",
   "communityLink": "https://community.hubitat.com/t/support-for-ge-appliances-smarthq/85930/12"
 }

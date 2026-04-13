@@ -21,7 +21,12 @@ limitations under the License.
 
 Change history:
 
-1.0.0  - craigde - Refactored from device driver to app architecture
+1.0.0  - craigde - Refactored from device driver to app architecture.
+                   Inlined WebSocket reconnection and OAuth code (previously in
+                   wsReinitialize library and smarthqHelpers). Various fixes:
+                   reconnect on generic init failures, unschedule on init/uninstall,
+                   clamp token-refresh delay, validate WSS endpoint, defer
+                   subscribe/list to status:open, concatenate auth cookies.
 0.9.15 - tomw - Bugfixes for connection reliability
 0.9.14 - tomw - Bugfix for token failure cases
 0.9.11 - tomw - Ice Maker support
@@ -31,6 +36,8 @@ Change history:
 0.9.0  - tomw - Initial release
 
 */
+
+import groovy.transform.Field
 
 definition(
     name: "SmartHQ",
@@ -79,7 +86,18 @@ def mainPage()
 }
 
 #include craigde.smarthqHelpers
-#include craigde.wsReinitialize
+
+//
+// OAuth credentials and endpoints
+// (kept here in the app rather than the shared helpers library so device
+// drivers don't carry secrets they never use)
+//
+
+@Field client_id     = "564c31616c4f7474434b307435412b4d2f6e7672"
+@Field client_secret = "6476512b5246446d452f697154444941387052645938466e5671746e5847593d"
+@Field redirect_uri  = "brillion.4e617a766474657344444e562b5935566e51324a://oauth/redirect"
+@Field cookie1       = "abgea_region=us-east-1; Domain=accounts.brillion.geappliances.com; HttpOnly; Path=/; Secure"
+@Field loginUrl      = "https://accounts.brillion.geappliances.com"
 
 def isLogEnable()
 {
@@ -98,13 +116,16 @@ def updated()
 
 def uninstalled()
 {
+    unschedule()
     closeEventSocket()
     getChildDevices()?.each { deleteChildDevice(it.deviceNetworkId) }
 }
 
 def initialize()
 {
+    unschedule(initialize)
     closeEventSocket()
+
     def currentOp
 
     try
@@ -124,30 +145,35 @@ def initialize()
 
         currentOp = "wss"
         def wssInfo = get_wss_credentials()
-        logDebug ("wssInfo = ${wssInfo}")
+        logDebug("wssInfo = ${wssInfo}")
 
-        openEventSocket(wssInfo?.endpoint)
-        subscribe_all()
-        get_appliance_list()
+        if(!wssInfo?.endpoint)
+        {
+            log.warn "WSS credentials returned no endpoint"
+            reinitialize()
+            return
+        }
+
+        // open the socket; subscription + appliance list are deferred to
+        // webSocketStatus("status: open") so we don't send messages over a
+        // socket that isn't connected yet
+        openEventSocket(wssInfo.endpoint)
     }
     catch(java.net.UnknownHostException e)
     {
         logDebug("${currentOp} failed (1): ${e}")
-
         reinitialize()
         return
     }
     catch(groovyx.net.http.HttpResponseException e)
     {
         logDebug("${currentOp} failed HTTP status: ${e.getResponse()?.getStatus()}")
-
         reinitialize()
         return
     }
     catch(Exception e)
     {
         logDebug("${currentOp} failed (2): ${e}")
-
         reinitialize()
         return
     }
@@ -167,6 +193,13 @@ def parse(String message)
     }
 }
 
+//
+// WebSocket connection management
+// (previously in wsReinitialize library; inlined because the app is the only
+// consumer and the library had to reach into the consumer's `state` and
+// `interfaces.webSocket` anyway)
+//
+
 def openEventSocket(url)
 {
     interfaces.webSocket.connect(url, ignoreSSLIssues: true, perMessageDeflate: false)
@@ -174,7 +207,15 @@ def openEventSocket(url)
 
 def closeEventSocket()
 {
-    closeWebSocket()
+    try
+    {
+        state.wasExpectedClose = true
+        interfaces.webSocket.close()
+    }
+    catch (Exception e)
+    {
+        // socket may not be open; ignore
+    }
 }
 
 def sendWssMap(msg)
@@ -189,6 +230,54 @@ def sendWssMap(msg)
         logDebug("sendWssMap failed: ${e}")
         reinitialize()
     }
+}
+
+def webSocketStatus(String message)
+{
+    logDebug("webSocketStatus: ${message}")
+
+    if(message?.startsWith("status: open"))
+    {
+        state.reconnectDelay = 1
+        state.wasExpectedClose = false
+
+        // socket is now ready; subscribe and request appliance list
+        try
+        {
+            subscribe_all()
+            get_appliance_list()
+        }
+        catch (Exception e)
+        {
+            logDebug("post-open setup failed: ${e}")
+            reinitialize()
+        }
+        return
+    }
+
+    def reInitTriggers = ["status: closing", "failure:"]
+    if(reInitTriggers.any { message?.contains(it) })
+    {
+        if(state.wasExpectedClose)
+        {
+            state.wasExpectedClose = false
+            return
+        }
+
+        reinitialize()
+    }
+}
+
+def reinitialize()
+{
+    unschedule(initialize)
+
+    // exponential backoff: 2s, 4s, ... capped at 600s
+    def delayCalc = (state.reconnectDelay ?: 1) * 2
+    def reconnectDelay = (delayCalc <= 600) ? delayCalc : 600
+
+    state.reconnectDelay = reconnectDelay
+    runIn(reconnectDelay, initialize)
 }
 
 //
@@ -336,6 +425,8 @@ def subscribe_all()
 
 //
 // login flow
+// (previously in smarthqHelpers; moved here because only the app uses it
+// and the credentials don't belong in code that ships to every driver)
 //
 
 def genCookie1()
@@ -361,24 +452,23 @@ def get_authorization_code()
 
         // extract values (signature, _csrf) from HTML login page contents
         signature = resp.data.'**'.find { it.@name.text() == 'signature' }?.@value?.text()
-        //logDebug signature
 
         def _csrfKey = resp.data.'**'.find { it.@name.text() == '_csrf' }
         // _csrf may appear twice in the page, so get whichever one we found
         _csrf = _csrfKey?.@content?.text() ?: _csrfKey?.@value?.text()
-        //logDebug _csrf
 
         // look for and capture the "JSESSION" header
         cookie2 = resp.headers.find { it.name == "Set-Cookie" && it.value.contains("JSESSION") }?.value
-        //logDebug cookie2
     }
 
+    // both cookies must be sent together; a Groovy map literal silently
+    // drops duplicate keys, so concatenate into a single Cookie header value
     def postParams =
         [
             body: [signature: signature, _csrf: _csrf, username: username, password: password],
             uri: loginUrl + "/oauth2/g_authenticate",
             followRedirects: false,
-            headers: [cookie: genCookie1(), cookie: cookie2]
+            headers: [cookie: "${genCookie1()}; ${cookie2}"]
         ]
 
     def paramsMap = [:]
@@ -386,7 +476,6 @@ def get_authorization_code()
     httpPost(postParams)
     {
         resp->
-        //logDebug resp.getStatus()
 
         def locVal = resp.headers['Location']?.value
         if(locVal)
@@ -394,11 +483,9 @@ def get_authorization_code()
             def paramsList = locVal.substring(locVal.indexOf("?") + 1, locVal.length())
             paramsList?.split("&").each
             {
-                temp = it.split("=")
+                def temp = it.split("=")
                 paramsMap.put(temp[0], temp[1])
             }
-
-            //logDebug paramsMap.code
         }
     }
 
@@ -420,7 +507,7 @@ def get_oauth2_token(type)
             break
     }
 
-    postParams =
+    def postParams =
        [
            body: postBody,
            uri: loginUrl + "/oauth2/token",
@@ -431,15 +518,16 @@ def get_oauth2_token(type)
     httpPost(postParams)
     {
         resp->
-        //logDebug resp.getStatus()
         state.access_token = resp.data?.access_token
         state.refresh_token = resp.data?.refresh_token
 
         def expirSecs = resp.data?.expires_in?.toInteger()
         if(expirSecs)
         {
-            // schedule re-auth
-            runIn(expirSecs - 120, initialize)
+            // schedule re-auth 2 minutes before expiry; clamp to a sane minimum
+            // so a short-lived token can't produce a negative or near-zero delay
+            def reauthDelay = Math.max(expirSecs - 120, 60)
+            runIn(reauthDelay, initialize)
         }
 
         data = resp.data

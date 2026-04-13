@@ -57,6 +57,17 @@ metadata
 
 #include craigde.smarthqHelpers
 
+def installed()
+{
+    // PushableButton requires numberOfButtons; KEY_PRESSED events fire push(N)
+    sendEvent(name: "numberOfButtons", value: 1)
+}
+
+def updated()
+{
+    sendEvent(name: "numberOfButtons", value: 1)
+}
+
 def refresh()
 {
     refreshAppliance()
@@ -158,10 +169,17 @@ def parseCookMode(value, option)
 
 def parseCookState(value, option)
 {
-    def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-    def modeName = ([UPPER_OVEN_CURRENT_STATE, UPPER_OVEN_COOK_MODE].contains(option))  ? "upperCookMode" : "lowerCookMode"
-    
-    sendEvent(name: modeName, value: knownModes[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown")
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        def modeName = ([UPPER_OVEN_CURRENT_STATE, UPPER_OVEN_COOK_MODE].contains(option))  ? "upperCookMode" : "lowerCookMode"
+
+        sendEvent(name: modeName, value: knownModes[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown")
+    }
+    catch (Exception e)
+    {
+        logDebug("parseCookState error: ${e.message}")
+    }
 }
 
 def parseRawTemp(value, option)
@@ -220,9 +238,16 @@ def parseTimerVal(value, option)
 
 def parseCooktopStatus(value)
 {
-    def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-    
-    sendEvent(name: "cooktopStatus", value: ([0] == subBytes(bytes, 0, 1)) ? "off" : "on")
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+
+        sendEvent(name: "cooktopStatus", value: ([0] == subBytes(bytes, 0, 1)) ? "off" : "on")
+    }
+    catch (Exception e)
+    {
+        logDebug("parseCooktopStatus error: ${e.message}")
+    }
 }
 
 import groovy.transform.Field
