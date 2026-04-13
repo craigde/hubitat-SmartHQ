@@ -4,12 +4,12 @@
   "version": "1.0.1",
   "minimumHEVersion": "2.1.9",
   "dateReleased": "2026-04-13",
-  "bundles": [
+  "libraries": [
     {
-      "id": "f8a2c1d4-9b3e-4f5a-8c7d-1e2f3a4b5c6d",
-      "name": "hubitat_SmartHQ",
+      "id": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "name": "smarthqHelpers",
       "namespace": "craigde",
-      "location": "https://github.com/craigde/hubitat-SmartHQ/blob/main/hubitat_SmartHQ.zip?raw=true",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/libraries/smarthqHelpers",
       "required": true
     }
   ],
