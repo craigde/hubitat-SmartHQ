@@ -24,12 +24,25 @@ Installing with Hubitat Package Manager (HPM) is recommended.
 
 If you must install manually, follow these steps:
 
-1. In the *Apps Code* section of Hubitat, add the SmartHQ app from `apps/smartHQ_app`
-2. In the *Drivers Code* section of Hubitat, add any drivers that apply to your system from the `devices` subdirectory
-3. In the *Bundles* section of Hubitat, import the `hubitat_SmartHQ.zip` bundle (contains shared libraries)
+1. In the *Bundles* section of Hubitat, import the `hubitat_SmartHQ.zip` bundle (contains the shared `smarthqHelpers` library that the app and drivers `#include`). **Do this first** — the app and drivers will not compile without it.
+2. In the *Apps Code* section of Hubitat, add the SmartHQ app from `apps/smartHQ_app`
+3. In the *Drivers Code* section of Hubitat, add any drivers that apply to your system from the `devices` subdirectory
 4. Go to *Apps* → *Add User App* → *SmartHQ*
 5. Enter your SmartHQ username and password and save
 6. Appliance devices will be created automatically
+
+### Regenerating the Bundle
+
+Hubitat Package Manager (HPM) does not install libraries directly from a manifest — they have to be delivered via a bundle ZIP. The repo includes a pre-built `hubitat_SmartHQ.zip` containing the `smarthqHelpers` library. Regenerate it whenever `libraries/smarthqHelpers` changes:
+
+1. In Hubitat: *Libraries Code* → import `libraries/smarthqHelpers` if it isn't already loaded
+2. Go to *Bundles* → create a new bundle named `SmartHQ Helpers Library` (namespace `craigde`)
+3. Add the `smarthqHelpers` library to the bundle
+4. Export the bundle — Hubitat produces a ZIP
+5. Replace `hubitat_SmartHQ.zip` at the repo root with the exported ZIP
+6. Commit and push
+
+The bundle only contains the library, so it rarely needs updating — most ongoing changes are in the app and individual drivers, which HPM installs as plain files.
 
 ## Supported Appliances
 
