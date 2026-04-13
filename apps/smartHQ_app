@@ -147,6 +147,8 @@ def initialize()
     catch(Exception e)
     {
         logDebug("${currentOp} failed (2): ${e}")
+
+        reinitialize()
         return
     }
 }
@@ -177,9 +179,16 @@ def closeEventSocket()
 
 def sendWssMap(msg)
 {
-    def msgJson = groovy.json.JsonOutput.toJson(msg)
-
-    interfaces.webSocket.sendMessage(msgJson)
+    try
+    {
+        def msgJson = groovy.json.JsonOutput.toJson(msg)
+        interfaces.webSocket.sendMessage(msgJson)
+    }
+    catch (Exception e)
+    {
+        logDebug("sendWssMap failed: ${e}")
+        reinitialize()
+    }
 }
 
 //
