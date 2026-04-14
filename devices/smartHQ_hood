@@ -28,8 +28,9 @@ Change history:
 
 metadata
 {
-    definition(name: "SmartHQ Hood", namespace: "craigde", author: "craigde") 
+    definition(name: "SmartHQ Hood", namespace: "craigde", author: "craigde")
     {
+        capability "Actuator"
         capability "FanControl"
         capability "Refresh"
         capability "Switch"

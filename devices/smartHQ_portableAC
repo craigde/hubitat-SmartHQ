@@ -30,28 +30,30 @@ Change history:
 
 metadata
 {
-    definition(name: "SmartHQ Portable AC", namespace: "craigde", author: "craigde") 
+    definition(name: "SmartHQ Portable AC", namespace: "craigde", author: "craigde")
     {
         capability "FanControl"
+        capability "FilterStatus"
         capability "Refresh"
-        capability "RelaySwitch"
         capability "Switch"
         capability "TemperatureMeasurement"
         capability "ThermostatCoolingSetpoint"
         capability "ThermostatFanMode"
+        capability "ThermostatMode"
         capability "ThermostatOperatingState"
         capability "ThermostatSetpoint"
-        
+
         command "adjustSetpoint", ["number"]
-        command "setOperatingMode", [[name: "Operating mode*", type:"ENUM", description:"Operating mode to set", constraints: operationModeNames()]]    
-        
+        command "setOperatingMode", [[name: "Operating mode*", type:"ENUM", description:"Operating mode to set", constraints: operationModeNames()]]
+
         // overriding default options for setSpeed
         command "setSpeed", [[name: "Fan speed*", type:"ENUM", description:"Fan speed to set", constraints: fanModeNames()]]
         // overriding default options for setThermostatFanMode
         command "setThermostatFanMode", [[name: "Fan speed*", type:"ENUM", description:"Fan speed to set", constraints: fanModeNames()]]
-        
+        // overriding default options for setThermostatMode (driven by AC operating modes)
+        command "setThermostatMode", [[name: "Thermostat mode*", type:"ENUM", description:"Thermostat mode to set", constraints: operationModeNames()]]
+
         attribute "currentTemp", "number"
-        attribute "filterStatus", "string"
         attribute "supportedOperatingModes", "enum"
         attribute "supportedThermostatFanModes", "enum"
     }
@@ -74,8 +76,14 @@ def refresh()
     sendEvent(name: "supportedFanSpeeds", value: fanModeNames())
     sendEvent(name: "supportedOperatingModes", value: operationModeNames())
     sendEvent(name: "supportedThermostatFanModes", value: fanModeNames())
-    
+    sendEvent(name: "supportedThermostatModes", value: operationModeNames())
+
     refreshAppliance()
+}
+
+def setThermostatMode(mode)
+{
+    setOperatingMode(mode)
 }
 
 def setCoolingSetpoint(temp)
@@ -117,7 +125,9 @@ def parse(item)
         
         case AC_FILTER_STATUS:
             def filterVal = decodeErdInt(hubitat.helper.HexUtils.hexStringToByteArray(item.value))
-            sendEvent(name: "filterStatus", value: filterVal ? "clean" : "ok")
+            // Use the standard FilterStatus values ("normal" / "replace") so
+            // automations that target the FilterStatus capability work natively.
+            sendEvent(name: "filterStatus", value: filterVal ? "replace" : "normal")
             break
     }
 }
@@ -168,8 +178,11 @@ def parseOperatingMode(value)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        def label = operationModes[decodeErdInt(bytes[0]).toInteger()]
-        sendEvent(name: "thermostatOperatingState", value: label ?: "unknown")
+        def label = operationModes[decodeErdInt(bytes[0]).toInteger()] ?: "unknown"
+        sendEvent(name: "thermostatOperatingState", value: label)
+        // ThermostatMode capability requires the `thermostatMode` attribute.
+        // The AC's operating mode is the same concept, so mirror it.
+        sendEvent(name: "thermostatMode", value: label)
     }
     catch (Exception e)
     {

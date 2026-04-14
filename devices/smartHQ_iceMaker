@@ -28,8 +28,10 @@ Change history:
 
 metadata
 {
-    definition(name: "SmartHQ Ice Maker", namespace: "craigde", author: "craigde") 
+    definition(name: "SmartHQ Ice Maker", namespace: "craigde", author: "craigde")
     {
+        capability "Actuator"
+        capability "FilterStatus"
         capability "Refresh"
         capability "Switch"
         
@@ -124,10 +126,11 @@ import groovy.transform.Field
         2: "dim"
     ]
                                            
-@Field Map knownFilterStatuses = 
+// Standard FilterStatus capability values: "normal" / "replace".
+@Field Map knownFilterStatuses =
     [
-        0: "ok",
-        1: "expired",
+        0: "normal",
+        1: "replace",
     ]
 
 @Field Map knownStatuses = 

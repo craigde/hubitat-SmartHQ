@@ -30,11 +30,12 @@ Change history:
 
 metadata
 {
-    definition(name: "SmartHQ Laundry", namespace: "craigde", author: "craigde") 
+    definition(name: "SmartHQ Laundry", namespace: "craigde", author: "craigde")
     {
         capability "Actuator"
         capability "ContactSensor"
         capability "Refresh"
+        capability "Switch"
         
         attribute "delayRemaining", "number"
         attribute "doorLock", "enum", ["unlocked", "locked"]
@@ -96,12 +97,30 @@ def parseMachineState(value)
     try
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        sendEvent(name: "machineState", value: machineStates[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown")
+        def label = machineStates[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown"
+        sendEvent(name: "machineState", value: label)
+
+        // Roll machineState up into the standard `switch` attribute so
+        // "is the laundry running?" automations work natively.
+        def runningStates = ["run", "dsm_delay_run", "delay_run", "bulk_flush"]
+        sendEvent(name: "switch", value: runningStates.contains(label) ? "on" : "off")
     }
     catch (Exception e)
     {
         logDebug("parseMachineState error: ${e.message}")
     }
+}
+
+// Switch is read-only; the SmartHQ API does not provide remote start/stop
+// for washers and dryers. The `switch` attribute reflects current run state.
+def on()
+{
+    log.warn "${device.displayName}: switch is read-only; laundry cycles cannot be started remotely"
+}
+
+def off()
+{
+    log.warn "${device.displayName}: switch is read-only; laundry cycles cannot be stopped remotely"
 }
 
 def parseDoorLock(value)

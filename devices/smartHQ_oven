@@ -35,6 +35,7 @@ metadata
         capability "Actuator"
         capability "PushableButton"
         capability "Refresh"
+        capability "Switch"
         capability "TemperatureMeasurement"
 
         command "setSabbathMode", [[name: "Sabbath mode enable?*", type:"ENUM", constraints: [true, false]]]
@@ -173,13 +174,40 @@ def parseCookState(value, option)
     {
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
         def modeName = ([UPPER_OVEN_CURRENT_STATE, UPPER_OVEN_COOK_MODE].contains(option))  ? "upperCookMode" : "lowerCookMode"
+        def modeLabel = knownModes[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown"
 
-        sendEvent(name: modeName, value: knownModes[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown")
+        sendEvent(name: modeName, value: modeLabel)
+
+        // Roll the per-oven cook modes up into the standard `switch` attribute
+        // (Switch capability) so dashboards and "is the oven on?" automations
+        // work natively. Switch is on if either oven is in any non-off mode.
+        updateSwitchState()
     }
     catch (Exception e)
     {
         logDebug("parseCookState error: ${e.message}")
     }
+}
+
+private updateSwitchState()
+{
+    def upper = device.currentValue("upperCookMode")
+    def lower = device.currentValue("lowerCookMode")
+    def isOn = (upper && upper != "off") || (lower && lower != "off")
+    sendEvent(name: "switch", value: isOn ? "on" : "off")
+}
+
+// The Switch capability requires on()/off() commands but the SmartHQ API
+// does not allow remotely starting an oven (and that's a feature, not a
+// bug). The `switch` attribute is read-only and reflects current cook state.
+def on()
+{
+    log.warn "${device.displayName}: switch is read-only; ovens cannot be started remotely"
+}
+
+def off()
+{
+    log.warn "${device.displayName}: switch is read-only; ovens cannot be stopped remotely"
 }
 
 def parseRawTemp(value, option)
