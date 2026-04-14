@@ -28,11 +28,12 @@ Change history:
 
 metadata
 {
-    definition(name: "SmartHQ Microwave", namespace: "craigde", author: "craigde") 
+    definition(name: "SmartHQ Microwave", namespace: "craigde", author: "craigde")
     {
         capability "Actuator"
         capability "ContactSensor"
         capability "Refresh"
+        capability "Switch"
         
         command "adjustCookSetting", [[name: "powerLevel*", type: "NUMBER"], [name: "minutes*", type: "NUMBER"], [name: "seconds*", type: "NUMBER"]]
         command "adjustMicrowaveState", [[name: "Cook status*", type:"ENUM", description:"Cook status mode to set", constraints: cookStatusNames()]]    
@@ -89,18 +90,34 @@ def parseMicrowaveState(value)
 {
     try
     {
-        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)        
-        
-        sendEvent(name: "cookStatus", value: cookStatuses[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown")
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+
+        def status = cookStatuses[decodeErdInt(subBytes(bytes, 0, 1))] ?: "unknown"
+        sendEvent(name: "cookStatus", value: status)
         sendEvent(name: "cookMode", value: cookModes[decodeErdInt(subBytes(bytes, 1, 1))] ?: "unknown")
         parseDoorStatusByte(value.substring(4,6), doorNormallyClosed)
         sendEvent(name: "powerLevel", value: decodeErdInt(subBytes(bytes, 3, 1)))
-        
+
+        // Roll cookStatus up into the standard `switch` attribute so
+        // "notify me when microwave finishes" works natively.
+        sendEvent(name: "switch", value: (status == "on") ? "on" : "off")
     }
     catch (Exception e)
     {
         logDebug("parse error: ${e.message}")
-    }  
+    }
+}
+
+// Switch is read-only; microwaves cannot be started remotely (safety).
+// The `switch` attribute reflects current cookStatus.
+def on()
+{
+    log.warn "${device.displayName}: switch is read-only; microwaves cannot be started remotely"
+}
+
+def off()
+{
+    log.warn "${device.displayName}: switch is read-only; use adjustMicrowaveState to stop a running cycle"
 }
 
 def adjustMicrowaveState(state)

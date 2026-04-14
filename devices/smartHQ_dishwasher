@@ -31,10 +31,12 @@ Change history:
 
 metadata
 {
-    definition(name: "SmartHQ Dishwasher", namespace: "craigde", author: "craigde") 
+    definition(name: "SmartHQ Dishwasher", namespace: "craigde", author: "craigde")
     {
+        capability "Actuator"
         capability "ContactSensor"
         capability "Refresh"
+        capability "Switch"
         
         command "adjustNumberOfPods", [[name:"Operation*", type:"ENUM", constraints: ["add","subtract","set"]], [name: "numberOfPods*", type:"NUMBER"]]
         
@@ -124,6 +126,7 @@ def parseCycleState(value)
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
         def cState = knownStates[decodeErdInt(subBytes(bytes, 0, 1))]
         sendEvent(name: "cycleState", value: (null != cState) ? cState : "unknown")
+        updateSwitchState()
     }
     catch (Exception e)
     {
@@ -138,11 +141,36 @@ def parseMode(value)
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
         def mode = knownModes[decodeErdInt(subBytes(bytes, 0, 1))]
         sendEvent(name: "mode", value: (null != mode) ? mode : "unknown")
+        updateSwitchState()
     }
     catch (Exception e)
     {
         logDebug("parseMode error: ${e.message}")
     }
+}
+
+private updateSwitchState()
+{
+    // "Running" = the wash cycle is actively progressing through one of the
+    // wet phases. We deliberately exclude pause, delay start, end, and idle
+    // so "is the dishwasher running?" automations are accurate.
+    def runningStates = ["prewash", "sensing", "main wash", "drying",
+                         "sanitizing", "starting", "rinsing", "prewash1",
+                         "final rinse", "end prewash1", "final rinse fill"]
+    def cs = device.currentValue("cycleState")
+    sendEvent(name: "switch", value: runningStates.contains(cs) ? "on" : "off")
+}
+
+// Switch on/off map to the existing start/stop commands so the dishwasher
+// can be controlled from any rule or dashboard tile that targets a Switch.
+def on()
+{
+    start()
+}
+
+def off()
+{
+    stop()
 }
 
 def parseUserSetting(value)

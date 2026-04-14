@@ -30,24 +30,26 @@ Change history:
 
 metadata
 {
-    definition(name: "SmartHQ Refrigerator", namespace: "craigde", author: "craigde") 
+    definition(name: "SmartHQ Refrigerator", namespace: "craigde", author: "craigde")
     {
         capability "Actuator"
+        capability "FilterStatus"
         capability "Refresh"
-        
+        capability "TemperatureMeasurement"
+
         command "adjustSetpoints", [[name: "fridge*", type: "NUMBER"], [name: "freezer*", type: "NUMBER"]]
         command "setSabbathMode", [[name: "Sabbath mode enable?*", type:"ENUM", constraints: [true, false]]]
-        
+
         attribute "leftDoor", "enum", ["open", "closed"]
         attribute "rightDoor", "enum", ["open", "closed"]
         attribute "freezer", "enum", ["open", "closed"]
         attribute "drawer", "enum", ["open", "closed"]
-        
+
         attribute "freezerActual", "number"
         attribute "freezerSetpoint", "number"
         attribute "fridgeActual", "number"
         attribute "fridgeSetpoint", "number"
-        
+
         attribute "airFilterStatus", "string"
         attribute "waterFilterStatus", "string"
         attribute "sabbathMode", "string"
@@ -125,9 +127,19 @@ def parseTemps(value, option)
         {
             def fridgeAttr = (CURRENT_TEMPERATURE == option) ? "fridgeActual" : "fridgeSetpoint"
             def freezerAttr = (CURRENT_TEMPERATURE == option) ? "freezerActual" : "freezerSetpoint"
+            def fridgeTemp = decodeErdSignedByte(bytes[0])
+            def freezerTemp = decodeErdSignedByte(bytes[1])
 
-            events += [name: fridgeAttr, value: decodeErdSignedByte(bytes[0]), unit: "F"]
-            events += [name: freezerAttr, value: decodeErdSignedByte(bytes[1]), unit: "F"]
+            events += [name: fridgeAttr, value: fridgeTemp, unit: "F"]
+            events += [name: freezerAttr, value: freezerTemp, unit: "F"]
+
+            // Mirror the fridge actual reading into the standard `temperature`
+            // attribute required by TemperatureMeasurement so dashboards and
+            // automations can use it directly.
+            if(CURRENT_TEMPERATURE == option)
+            {
+                events += [name: "temperature", value: fridgeTemp, unit: "F"]
+            }
         }
 
         flushEvents(events)
@@ -149,11 +161,26 @@ def parseFilterStatus(value, option)
 
         def status = ((0 == bytes[0]) ? bytes[1] : bytes[0]).toInteger()
         sendEvent(name: filterName, value: filterStatus[status] ?: "unknown")
+
+        // Update the standard `filterStatus` attribute (FilterStatus capability)
+        // by combining both filters: any non-OK state on either rolls up to
+        // "replace"; otherwise "normal". Detailed per-filter state is still
+        // available in airFilterStatus / waterFilterStatus.
+        updateRolledUpFilterStatus()
     }
     catch (Exception e)
     {
         logDebug("parse error: ${e.message}")
     }
+}
+
+private updateRolledUpFilterStatus()
+{
+    def needsReplace = ["replace", "expired", "leak detected"]
+    def air = device.currentValue("airFilterStatus")
+    def water = device.currentValue("waterFilterStatus")
+    def status = (needsReplace.contains(air) || needsReplace.contains(water)) ? "replace" : "normal"
+    sendEvent(name: "filterStatus", value: status)
 }
 
 // Conservative ranges for residential US refrigerators / freezers (degrees F).
