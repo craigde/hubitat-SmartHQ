@@ -142,10 +142,19 @@ def initialize()
             return
         }
 
-        // open the socket; subscription + appliance list are deferred to
-        // webSocketStatus("status: open") so we don't send messages over a
-        // socket that isn't connected yet
-        openEventSocket(wssInfo.endpoint)
+        // Hand the endpoint to the connector child device. Hubitat does not
+        // expose interfaces.webSocket to apps, so the WebSocket itself lives
+        // in the SmartHQ Connector driver. Subscription + appliance list are
+        // deferred to connectorOpened() so we don't send messages over a
+        // socket that isn't connected yet.
+        def connector = getOrCreateConnector()
+        if(!connector)
+        {
+            log.warn "no connector child device available"
+            reinitialize()
+            return
+        }
+        connector.setEndpointAndConnect(wssInfo.endpoint)
     }
     catch(java.net.UnknownHostException e)
     {
@@ -167,7 +176,87 @@ def initialize()
     }
 }
 
-def parse(String message)
+//
+// WebSocket connection management
+// (delegated to the SmartHQ Connector child device because Hubitat does not
+// allow apps to use interfaces.webSocket directly)
+//
+
+def connectorDni()
+{
+    return "SmartHQ-${app.id}-connector"
+}
+
+def getOrCreateConnector()
+{
+    def connector = getChildDevice(connectorDni())
+    if(connector)
+    {
+        return connector
+    }
+
+    try
+    {
+        connector = addChildDevice("craigde", "SmartHQ Connector", connectorDni(),
+            [label: "SmartHQ Connector", isComponent: true, name: connectorDni()])
+        return connector
+    }
+    catch (com.hubitat.app.exception.UnknownDeviceTypeException e)
+    {
+        log.error "SmartHQ Connector driver is not installed. Install it via HPM or manually before saving the SmartHQ app."
+        return null
+    }
+    catch (Exception e)
+    {
+        log.error "Failed to create connector child device: ${e}"
+        return null
+    }
+}
+
+def closeEventSocket()
+{
+    getChildDevice(connectorDni())?.closeConnection()
+}
+
+def sendWssMap(msg)
+{
+    def connector = getChildDevice(connectorDni())
+    if(!connector)
+    {
+        logDebug("sendWssMap: no connector child")
+        reinitialize()
+        return
+    }
+    connector.sendWssMessage(msg)
+}
+
+//
+// callbacks invoked by the SmartHQ Connector child device
+//
+
+def connectorOpened()
+{
+    state.reconnectDelay = 1
+
+    try
+    {
+        subscribe_all()
+        get_appliance_list()
+    }
+    catch (Exception e)
+    {
+        logDebug("post-open setup failed: ${e}")
+        reinitialize()
+    }
+}
+
+def connectorDisconnected(String reason)
+{
+    logDebug("connector disconnected: ${reason}")
+    reinitialize()
+}
+
+def connectorParse(String message)
 {
     logDebug("parse: ${message}")
 
@@ -178,81 +267,6 @@ def parse(String message)
     catch (Exception e)
     {
         logDebug("parse error: ${e.message}")
-    }
-}
-
-//
-// WebSocket connection management
-// (previously in wsReinitialize library; inlined because the app is the only
-// consumer and the library had to reach into the consumer's `state` and
-// `interfaces.webSocket` anyway)
-//
-
-def openEventSocket(url)
-{
-    interfaces.webSocket.connect(url, ignoreSSLIssues: true, perMessageDeflate: false)
-}
-
-def closeEventSocket()
-{
-    try
-    {
-        state.wasExpectedClose = true
-        interfaces.webSocket.close()
-    }
-    catch (Exception e)
-    {
-        // socket may not be open; ignore
-    }
-}
-
-def sendWssMap(msg)
-{
-    try
-    {
-        def msgJson = groovy.json.JsonOutput.toJson(msg)
-        interfaces.webSocket.sendMessage(msgJson)
-    }
-    catch (Exception e)
-    {
-        logDebug("sendWssMap failed: ${e}")
-        reinitialize()
-    }
-}
-
-def webSocketStatus(String message)
-{
-    logDebug("webSocketStatus: ${message}")
-
-    if(message?.startsWith("status: open"))
-    {
-        state.reconnectDelay = 1
-        state.wasExpectedClose = false
-
-        // socket is now ready; subscribe and request appliance list
-        try
-        {
-            subscribe_all()
-            get_appliance_list()
-        }
-        catch (Exception e)
-        {
-            logDebug("post-open setup failed: ${e}")
-            reinitialize()
-        }
-        return
-    }
-
-    def reInitTriggers = ["status: closing", "failure:"]
-    if(reInitTriggers.any { message?.contains(it) })
-    {
-        if(state.wasExpectedClose)
-        {
-            state.wasExpectedClose = false
-            return
-        }
-
-        reinitialize()
     }
 }
 

@@ -1,0 +1,146 @@
+/*
+
+Copyright 2024 - craigde
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+-------------------------------------------
+
+SmartHQ Connector
+-----------------
+Thin child-device driver that owns the WebSocket connection to the GE
+Brillion cloud. Hubitat does not expose `interfaces.webSocket` to apps,
+so the WebSocket-using code has to live in a driver. The SmartHQ app
+creates a single instance of this connector at install time and uses it
+to send and receive messages on behalf of the appliance child devices.
+
+All OAuth, token refresh, reconnect scheduling, and message dispatch
+logic stays in the app. This driver only:
+  - opens / closes / sends on the WebSocket
+  - forwards Hubitat's parse() and webSocketStatus() callbacks to the
+    parent app via connectorParse() / connectorOpened() /
+    connectorDisconnected()
+
+*/
+
+metadata
+{
+    definition(name: "SmartHQ Connector", namespace: "craigde", author: "craigde")
+    {
+        capability "Initialize"
+
+        attribute "connectionStatus", "enum", ["open", "disconnected", "unknown"]
+    }
+}
+
+def installed()
+{
+    sendEvent(name: "connectionStatus", value: "unknown")
+}
+
+def updated()
+{
+    // no-op; the parent app drives connect/disconnect via setEndpointAndConnect
+}
+
+def initialize()
+{
+    // Hubitat calls initialize() on driver load. We don't connect autonomously;
+    // the parent app pushes us an endpoint after it has a valid OAuth token.
+}
+
+def setEndpointAndConnect(url)
+{
+    closeConnection()
+
+    if(!url)
+    {
+        log.warn "setEndpointAndConnect: no url"
+        return
+    }
+
+    state.endpoint = url
+
+    try
+    {
+        interfaces.webSocket.connect(url, ignoreSSLIssues: true, perMessageDeflate: false)
+    }
+    catch (Exception e)
+    {
+        log.error "WebSocket connect failed: ${e}"
+        sendEvent(name: "connectionStatus", value: "disconnected")
+        parent?.connectorDisconnected("connect-exception: ${e}")
+    }
+}
+
+def closeConnection()
+{
+    try
+    {
+        state.wasExpectedClose = true
+        interfaces.webSocket.close()
+    }
+    catch (Exception e)
+    {
+        // socket may not be open; safe to ignore
+    }
+}
+
+def sendWssMessage(msg)
+{
+    try
+    {
+        def msgJson = groovy.json.JsonOutput.toJson(msg)
+        interfaces.webSocket.sendMessage(msgJson)
+    }
+    catch (Exception e)
+    {
+        log.warn "sendWssMessage failed: ${e}"
+        parent?.connectorDisconnected("send-exception: ${e}")
+    }
+}
+
+def parse(String message)
+{
+    parent?.connectorParse(message)
+}
+
+def webSocketStatus(String message)
+{
+    if(parent?.isLogEnable())
+    {
+        log.debug "webSocketStatus: ${message}"
+    }
+
+    if(message?.startsWith("status: open"))
+    {
+        state.wasExpectedClose = false
+        sendEvent(name: "connectionStatus", value: "open")
+        parent?.connectorOpened()
+        return
+    }
+
+    def reInitTriggers = ["status: closing", "failure:"]
+    if(reInitTriggers.any { message?.contains(it) })
+    {
+        sendEvent(name: "connectionStatus", value: "disconnected")
+
+        if(state.wasExpectedClose)
+        {
+            state.wasExpectedClose = false
+            return
+        }
+
+        parent?.connectorDisconnected(message)
+    }
+}

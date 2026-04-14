@@ -25,11 +25,18 @@ Installing with Hubitat Package Manager (HPM) is recommended.
 If you must install manually, follow these steps:
 
 1. In the *Bundles* section of Hubitat, import the `SmartHQHelpersLibrary.zip` bundle (contains the shared `smarthqHelpers` library that the app and drivers `#include`). **Do this first** — the app and drivers will not compile without it.
-2. In the *Apps Code* section of Hubitat, add the SmartHQ app from `apps/smartHQ_app`
-3. In the *Drivers Code* section of Hubitat, add any drivers that apply to your system from the `devices` subdirectory
-4. Go to *Apps* → *Add User App* → *SmartHQ*
-5. Enter your SmartHQ username and password and save
-6. Appliance devices will be created automatically
+2. In the *Drivers Code* section of Hubitat, add the **SmartHQ Connector** driver from `devices/smartHQ_connector`. **Required** — the app spawns a child device using this driver to own the WebSocket connection.
+3. In the *Apps Code* section of Hubitat, add the SmartHQ app from `apps/smartHQ_app`
+4. In the *Drivers Code* section of Hubitat, add any appliance drivers that apply to your system from the `devices` subdirectory
+5. Go to *Apps* → *Add User App* → *SmartHQ*
+6. Enter your SmartHQ username and password and save
+7. Appliance devices will be created automatically
+
+## Architecture
+
+- **SmartHQ** (app) — credentials UI, OAuth flow, dispatches incoming messages to appliance child devices.
+- **SmartHQ Connector** (child device, required) — owns the WebSocket connection to the GE Brillion cloud. Hubitat does not expose `interfaces.webSocket` to apps, so this driver is required for the WebSocket to work. The app creates one connector child automatically; you don't add it manually.
+- **Appliance drivers** (refrigerator, oven, etc.) — children of the app, one per discovered appliance. Each parses ERD events and exposes Hubitat capabilities.
 
 ### Regenerating the Bundle
 
