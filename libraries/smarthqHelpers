@@ -1,13 +1,3 @@
-/*
- * Based on original work by tomw (https://github.com/tomwpublic/hubitat_SmartHQ)
- * Thank you to tomw for creating and maintaining the original SmartHQ integration.
- *
- * This library is included by every SmartHQ device driver. It contains only
- * pure utility code (ERD encode/decode, message construction, common parse
- * helpers). OAuth credentials and the login flow live in the app, not here,
- * so drivers don't carry secrets they never use.
- */
-
 library (
     name: "smarthqHelpers",
     namespace: "craigde",
@@ -16,6 +6,16 @@ library (
     category: "Convenience",
     documentationLink: "https://github.com/craigde/hubitat-SmartHQ"
 )
+
+// Based on original work by tomw (https://github.com/tomwpublic/hubitat_SmartHQ).
+// This library is included by the SmartHQ app and every device driver. It
+// contains only pure utility code (ERD encode/decode, message construction,
+// common parse helpers). OAuth credentials and the login flow live in the
+// app, not here, so drivers don't carry secrets they never use.
+//
+// Note: do NOT prepend a /* ... */ block before the library() block above -
+// Hubitat's library parser rejects the file with "Cannot parse library
+// definition" when it sees one.
 
 import groovy.transform.Field
 

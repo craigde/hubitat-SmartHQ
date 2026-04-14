@@ -9,7 +9,7 @@
       "id": "f8a2c1d4-9b3e-4f5a-8c7d-1e2f3a4b5c6d",
       "name": "SmartHQ Helpers Library",
       "namespace": "craigde",
-      "location": "https://github.com/craigde/hubitat-SmartHQ/raw/main/hubitat_SmartHQ.zip",
+      "location": "https://github.com/craigde/hubitat-SmartHQ/raw/main/SmartHQHelpersLibrary.zip",
       "required": true
     }
   ],
