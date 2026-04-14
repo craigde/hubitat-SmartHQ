@@ -107,9 +107,20 @@ def hostPath()
 
 def buildDevDetails()
 {
+    // userId comes from the app via the List-appliances response. If we're
+    // called before that response arrives (briefly possible on first install
+    // between WebSocket open and the appliance list reply), bail out cleanly
+    // instead of constructing a malformed message with null userId.
+    def userId = getUserId()
+    if(!userId)
+    {
+        logDebug("buildDevDetails: userId not yet available; deferring operation")
+        return null
+    }
+
     def details =
         [
-            userId: getUserId(),
+            userId: userId,
             mac: device.getDataValue("mac"),
             host: hostPath()
         ]

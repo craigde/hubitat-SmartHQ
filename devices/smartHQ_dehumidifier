@@ -1,0 +1,424 @@
+/*
+
+Copyright 2026 - craigde
+
+Dehumidifier driver contributed by Alan_F (Hubitat community) - see commit
+history / Change history below for details. Integrated into the SmartHQ
+package with minor consistency edits (capability declarations, standard
+FilterStatus values, safer parse dispatch).
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+-------------------------------------------
+
+Change history:
+
+1.0.4  - craigde - Integrated Alan_F's dehumidifier driver into the SmartHQ
+                   package. Declared Actuator / FilterStatus / FanControl
+                   capabilities alongside the attributes that already
+                   backed them, normalized filterStatus values to the
+                   standard "normal" / "replace" vocabulary used by the
+                   rest of the project, and hardened the parse dispatch
+                   with a try/catch to match the other drivers.
+1.0.0  - Alan_F  - Initial GE SmartHQ Dehumidifier support, info-level
+                   logging preference, Fahrenheit/Celsius preference.
+
+*/
+
+metadata
+{
+    definition(name: "SmartHQ Dehumidifier", namespace: "craigde", author: "craigde")
+    {
+        capability "Actuator"
+        capability "FanControl"
+        capability "FilterStatus"
+        capability "Refresh"
+        capability "RelativeHumidityMeasurement"
+        capability "Switch"
+        capability "TemperatureMeasurement"
+
+        // Commands
+        command "setTargetHumidity", [[name: "Target humidity*", type:"ENUM", description:"Target humidity percentage", constraints: humidityLevels()]]
+        command "setContinuous"
+        command "setSpeed", [[name: "Fan speed*", type:"ENUM", description:"Fan speed to set", constraints: fanModeNames()]]
+
+        // Attributes
+        attribute "currentHumidity", "number"
+        attribute "currentTemp", "number"
+        attribute "targetHumidity", "number"
+        attribute "bucketStatus", "enum", ["ok", "full"]
+        attribute "supportedFanSpeeds", "enum"
+        attribute "operatingMode", "string"
+        attribute "filterLife", "number"
+        attribute "runTime", "number"
+        attribute "errorCode", "number"
+        attribute "modelNumber", "string"
+    }
+
+    preferences
+    {
+        input name: "tempUnit", type: "enum", title: "Temperature Unit",
+            description: "Choose how temperature is displayed",
+            options: ["F": "Fahrenheit", "C": "Celsius"],
+            defaultValue: "F", displayDuringSetup: true
+        input name: "infoLogEnable", type: "enum", title: "Enable info logging",
+            description: "Log each attribute change at info level (useful for external log collection)",
+            options: ["enabled": "Enabled", "disabled": "Disabled"],
+            defaultValue: "enabled", displayDuringSetup: true
+    }
+}
+
+#include craigde.smarthqHelpers
+
+def installed()
+{
+    logDebug("Dehumidifier device installed")
+}
+
+def updated()
+{
+    logDebug("Dehumidifier device updated")
+}
+
+def refresh()
+{
+    sendEvent(name: "supportedFanSpeeds", value: fanModeNames())
+    refreshAppliance()
+}
+
+def fanModeNames()
+{
+    fanSettings.collect { it.value.toString() }
+}
+
+def humidityLevels()
+{
+    (35..80).step(5).collect { it.toString() }
+}
+
+// Info-level logging is a dehumidifier-specific convenience that mirrors
+// attribute changes into log.info so they can be captured by external log
+// aggregators without needing to enable Hubitat debug logging globally.
+def logInfo(msg)
+{
+    if (settings.infoLogEnable == "enabled")
+    {
+        log.info msg
+    }
+}
+
+def parse(item)
+{
+    if(!item)
+    {
+        return
+    }
+
+    def erdCode = item.erd?.toLowerCase()
+    def rawValue = item.value
+
+    def parseHex =
+    { str ->
+        try { return Integer.parseInt(str, 16) }
+        catch (e) { return null }
+    }
+
+    def logUnknown =
+    { code, val ->
+        logDebug("Unknown ERD code: ${code}, Value: ${val}")
+    }
+
+    try
+    {
+        switch (erdCode)
+        {
+            // Target humidity
+            case DH_TARGET_HUMIDITY:
+                def val = parseHex(rawValue)
+                if (val != null && val <= 100)
+                {
+                    sendEvent(name: "targetHumidity", value: val)
+                    logDebug("Parsed Target Humidity: ${val}%")
+                    logInfo("Target Humidity: ${val}%")
+                }
+                else
+                {
+                    logUnknown(erdCode, rawValue)
+                }
+                break
+
+            // Current humidity
+            case DH_CURRENT_HUMIDITY:
+                def currentVal = null
+                def fullVal = parseHex(rawValue)
+                if (fullVal != null && fullVal <= 100)
+                {
+                    currentVal = fullVal
+                }
+                else if (rawValue?.length() >= 2)
+                {
+                    def lastTwo = rawValue.substring(rawValue.length() - 2)
+                    currentVal = parseHex(lastTwo)
+                }
+
+                if (currentVal != null && currentVal <= 100)
+                {
+                    sendEvent(name: "currentHumidity", value: currentVal)
+                    sendEvent(name: "humidity", value: currentVal)
+                    logDebug("Parsed Current Humidity: ${currentVal}%")
+                    logInfo("Current Humidity: ${currentVal}%")
+                }
+                else
+                {
+                    logUnknown(erdCode, rawValue)
+                }
+                break
+
+            // Ambient temperature - the device reports centi-Celsius
+            case DH_AMBIENT_TEMPERATURE:
+                if (rawValue?.isNumber())
+                {
+                    def tempRaw = rawValue.toInteger()
+                    def tempC = tempRaw / 100.0
+
+                    def userUnit = settings.tempUnit ?: "F"
+                    def finalTemp = (userUnit == "F") ? ((tempC * 1.8) + 32) : tempC
+                    finalTemp = Math.round(finalTemp * 10) / 10.0
+
+                    sendEvent(name: "currentTemp", value: finalTemp, unit: userUnit)
+                    sendEvent(name: "temperature", value: finalTemp, unit: userUnit)
+                    logDebug("Parsed Temperature: ${finalTemp}°${userUnit}")
+                    logInfo("Temperature: ${finalTemp}°${userUnit}")
+                }
+                else
+                {
+                    logUnknown(erdCode, rawValue)
+                }
+                break
+
+            // Power status
+            case DH_POWER_STATUS:
+                def powerVal = parseHex(rawValue)
+                def switchVal = powerVal ? "on" : "off"
+                sendEvent(name: "switch", value: switchVal)
+                logDebug("Parsed Power Status: ${switchVal}")
+                logInfo("Power: ${switchVal}")
+                break
+
+            // Fan speed
+            case DH_FAN_SETTING:
+                def fanVal = parseHex(rawValue)
+                if (fanSettings[fanVal])
+                {
+                    sendEvent(name: "speed", value: fanSettings[fanVal])
+                    logDebug("Parsed Fan Speed: ${fanSettings[fanVal]}")
+                    logInfo("Fan Speed: ${fanSettings[fanVal]}")
+                }
+                else
+                {
+                    logUnknown(erdCode, rawValue)
+                }
+                break
+
+            // Operating mode (incoming state)
+            case DH_OPERATION_MODE:
+                def modeVal = parseHex(rawValue)
+                def modeMap = [0: "normal", 1: "continuous"]
+                if (modeMap[modeVal] != null)
+                {
+                    sendEvent(name: "operatingMode", value: modeMap[modeVal])
+                    logDebug("Parsed Operating Mode: ${modeMap[modeVal]}")
+                    logInfo("Operating Mode: ${modeMap[modeVal]}")
+                }
+                else
+                {
+                    logUnknown(erdCode, rawValue)
+                }
+                break
+
+            // Filter status - emit standard FilterStatus values
+            case DH_FILTER_STATUS:
+                def filterVal = parseHex(rawValue)
+                def status = filterVal ? "replace" : "normal"
+                sendEvent(name: "filterStatus", value: status)
+                logDebug("Parsed Filter Status: ${status}")
+                logInfo("Filter Status: ${status}")
+                break
+
+            // Bucket status - not a standard Hubitat capability
+            case DH_BUCKET_STATUS:
+                def bucketVal = parseHex(rawValue)
+                def status = bucketVal ? "full" : "ok"
+                sendEvent(name: "bucketStatus", value: status)
+                logDebug("Parsed Bucket Status: ${status}")
+                logInfo("Bucket Status: ${status}")
+                break
+
+            case DH_FILTER_LIFE:
+                def val = parseHex(rawValue)
+                if (val != null)
+                {
+                    sendEvent(name: "filterLife", value: val)
+                    logDebug("Parsed Filter Life: ${val}%")
+                    logInfo("Filter Life: ${val}")
+                }
+                else
+                {
+                    logUnknown(erdCode, rawValue)
+                }
+                break
+
+            case DH_RUN_TIME:
+                def val = parseHex(rawValue)
+                if (val != null)
+                {
+                    sendEvent(name: "runTime", value: val)
+                    logDebug("Parsed Run Time: ${val}")
+                    logInfo("Run Time: ${val}")
+                }
+                else
+                {
+                    logUnknown(erdCode, rawValue)
+                }
+                break
+
+            case DH_ERROR_CODE:
+                def val = parseHex(rawValue)
+                sendEvent(name: "errorCode", value: val)
+                logDebug("Parsed Error Code: ${val}")
+                logInfo("Error code: ${val}")
+                break
+
+            // Model number - shared ERD across appliance types
+            case MODEL_NUMBER:
+                try
+                {
+                    def bytes = hubitat.helper.HexUtils.hexStringToByteArray(rawValue)
+                    def modelStr = new String(bytes, "UTF-8").trim().replaceAll(/\u0000/, '')
+                    if (modelStr)
+                    {
+                        sendEvent(name: "modelNumber", value: modelStr)
+                        logDebug("Parsed Model: ${modelStr}")
+                        logInfo("Model: ${modelStr}")
+                    }
+                }
+                catch (e)
+                {
+                    logDebug("Failed to parse model number: ${e.message}")
+                }
+                break
+
+            // Continuous mode toggles (incoming)
+            case DH_CONTINUOUS_MODE_A:
+            case DH_CONTINUOUS_MODE_B:
+                if (rawValue == "01")
+                {
+                    sendEvent(name: "operatingMode", value: "continuous")
+                    logDebug("Continuous mode ON (ERD ${erdCode})")
+                    logInfo("Operating Mode: continuous")
+                }
+                else if (rawValue == "00")
+                {
+                    sendEvent(name: "operatingMode", value: "auto")
+                    logDebug("Continuous Mode OFF (ERD ${erdCode})")
+                    logInfo("Operating Mode: auto")
+                }
+                else
+                {
+                    logUnknown(erdCode, rawValue)
+                }
+                break
+
+            default:
+                logUnknown(erdCode, rawValue)
+                break
+        }
+    }
+    catch (Exception e)
+    {
+        logDebug("parse error for ${erdCode}: ${e.message}")
+    }
+}
+
+def ensurePowerOn()
+{
+    if (device.currentValue("switch") == "off")
+    {
+        setPowerStatus(true)
+    }
+}
+
+def on()
+{
+    setPowerStatus(true)
+}
+
+def off()
+{
+    setPowerStatus(false)
+}
+
+def setPowerStatus(boolean mode)
+{
+    def value = encodeErdInt(mode ? 1 : 0, 1)
+    def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(DH_POWER_STATUS, value))
+    parent?.sendWssMap(erdMap)
+}
+
+def setContinuous()
+{
+    ensurePowerOn()
+    def value = encodeErdInt(1, 1)
+    def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(DH_CONTINUOUS_MODE_A, value))
+    parent?.sendWssMap(erdMap)
+}
+
+def setTargetHumidity(humidity)
+{
+    ensurePowerOn()
+    def humidityVal = humidity.toInteger()
+    def value = encodeErdInt(humidityVal, 1)
+    def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(DH_TARGET_HUMIDITY, value))
+    parent?.sendWssMap(erdMap)
+}
+
+def setSpeed(fanspeed)
+{
+    ensurePowerOn()
+    setIntegerErd(fanspeed, fanSettings, DH_FAN_SETTING)
+}
+
+import groovy.transform.Field
+
+@Field Map fanSettings =
+    [
+        0:  "off",
+        2:  "low",
+        4:  "medium",
+        8:  "high",
+        16: "smart_dry"
+    ]
+
+@Field DH_TARGET_HUMIDITY     = "0x7b02"
+@Field DH_CURRENT_HUMIDITY    = "0x7b01"
+@Field DH_AMBIENT_TEMPERATURE = "0x7b03"
+@Field DH_FAN_SETTING         = "0x7a00"
+@Field DH_OPERATION_MODE      = "0x7b05"
+@Field DH_POWER_STATUS        = "0x7a0f"
+@Field DH_FILTER_STATUS       = "0x7b06"
+@Field DH_BUCKET_STATUS       = "0x7b07"
+@Field DH_FILTER_LIFE         = "0x7a14"
+@Field DH_RUN_TIME            = "0x7a12"
+@Field DH_ERROR_CODE          = "0x7a13"
+@Field DH_CONTINUOUS_MODE_A   = "0x7833"
+@Field DH_CONTINUOUS_MODE_B   = "0x7834"
