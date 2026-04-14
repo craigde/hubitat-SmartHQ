@@ -62,6 +62,7 @@ The bundle only contains the library, so it rarely needs updating — most ongoi
 - Home Water Filter
 - Ice Maker (Opal Nugget)
 - Range Hood
+- Dehumidifier (driver contributed by Alan_F)
 
 ## Usage
 
