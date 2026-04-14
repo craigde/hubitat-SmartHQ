@@ -46,6 +46,12 @@ Similar to oven cavities — `cooktopStatus` could be a child Switch component f
 
 ## Other follow-ups
 
+### Release checklist: regenerate the library bundle
+
+Whenever `libraries/smarthqHelpers` changes, the `SmartHQHelpersLibrary.zip` bundle at the repo root **must** be regenerated and recommitted. HPM installs bundles first, so a stale bundle keeps an out-of-date library on the user's hub regardless of what's in `main`. Symptom of forgetting: users see errors related to old library code paths (e.g. the `getDataValue("userId")` fallback that used to live in `getUserId()`).
+
+Steps to regenerate are in the README under "Regenerating the Bundle".
+
 ### Token / WSS credential debug logging (security)
 
 Currently the app logs full OAuth token responses and WSS endpoint URLs (with embedded access tokens) when debug logging is on. This was kept enabled for v1 troubleshooting per the original review. **Before any wider release**, change these `logDebug` calls in `apps/smartHQ_app` to log success/failure messages only:
