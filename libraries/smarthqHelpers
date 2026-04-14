@@ -9,12 +9,12 @@
  */
 
 library (
-    author: "craigde",
-    category: "",
-    description: "SmartHQ helpers",
     name: "smarthqHelpers",
     namespace: "craigde",
-    documentationLink: ""
+    author: "craigde",
+    description: "SmartHQ helpers - shared utilities for the SmartHQ app and device drivers",
+    category: "Convenience",
+    documentationLink: "https://github.com/craigde/hubitat-SmartHQ"
 )
 
 import groovy.transform.Field
