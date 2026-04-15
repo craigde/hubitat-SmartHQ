@@ -46,10 +46,6 @@ Similar to oven cavities — `cooktopStatus` could be a child Switch component f
 
 ## Other follow-ups
 
-### Dehumidifier appliance-type string
-
-`apps/smartHQ_app` has a `switch(details.type)` block that aliases cloud-reported appliance-type strings to driver names (e.g. "Clothes Washer" → "Laundry"). We haven't yet confirmed what string the SmartHQ cloud returns for dehumidifiers. If the cloud string is exactly `"Dehumidifier"`, the default path works (driver name "SmartHQ Dehumidifier" matches). If it returns something like `"Home Dehumidifier"` or `"Portable Dehumidifier"`, add an alias case so auto-discovery creates the right child device. Alan_F's driver works for him; if other users report `UnknownDeviceTypeException` on install, this is the first place to look.
-
 ### Info-level logging preference — roll out to other drivers?
 
 Alan_F's dehumidifier driver introduces an `infoLogEnable` preference that logs each attribute change at `log.info` level (useful for external log aggregators). It's currently scoped to just the dehumidifier; consider whether to add the same preference + `logInfo(msg)` helper to the other appliance drivers for consistency.
