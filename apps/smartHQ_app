@@ -21,6 +21,14 @@ limitations under the License.
 
 Change history:
 
+1.0.5  - craigde - Harden the OAuth authorization-code parsing. The login
+         redirect query-string parser used temp[1] after split("="), which
+         threw ArrayIndexOutOfBoundsException when GE returned an empty-valued
+         redirect param (e.g. "scope="), breaking full re-auth. Now splits on
+         the first '=' only and tolerates valueless params. When login returns
+         no authorization code (MFA challenge, bad credentials, or a changed
+         flow) the app now logs a clear reason and shows it on the config page
+         instead of failing silently into the reconnect backoff.
 1.0.0  - craigde - Refactored from device driver to app architecture
 
 */
@@ -57,6 +65,13 @@ def mainPage()
         section("Logging")
         {
             input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true
+        }
+        if(state.lastAuthError)
+        {
+            section("Login Status")
+            {
+                paragraph "<b>Last login attempt failed:</b> ${state.lastAuthError}"
+            }
         }
         if(state.access_token)
         {
@@ -474,20 +489,55 @@ def get_authorization_code()
         ]
 
     def paramsMap = [:]
+    def respBody = ""
 
     httpPost(postParams)
     {
         resp->
 
         def locVal = resp.headers['Location']?.value
-        if(locVal)
+        if(locVal && locVal.contains("?"))
         {
             def paramsList = locVal.substring(locVal.indexOf("?") + 1, locVal.length())
             paramsList?.split("&").each
             {
-                def temp = it.split("=")
-                paramsMap.put(temp[0], temp[1])
+                // split on the first '=' only, and tolerate params with no
+                // value. String.split drops trailing empty fields, so an
+                // empty-valued param like "scope=" yields a length-1 array;
+                // indexing temp[1] there throws ArrayIndexOutOfBoundsException.
+                def temp = it.split("=", 2)
+                if(temp[0])
+                {
+                    paramsMap.put(temp[0], (temp.size() > 1) ? temp[1] : "")
+                }
             }
+        }
+        else
+        {
+            // No redirect (or one without a query string) means the login POST
+            // did not return an authorization code. Capture the body so we can
+            // distinguish an MFA challenge from other failures below.
+            respBody = resp.data?.toString() ?: ""
+        }
+    }
+
+    if(paramsMap.code)
+    {
+        state.remove("lastAuthError")
+    }
+    else
+    {
+        // No code means we cannot complete login. Surface a clear, actionable
+        // reason instead of failing silently into the reconnect backoff.
+        if(respBody =~ /(?i)multi-factor|multi factor|\bmfa\b|verification code/)
+        {
+            log.warn "SmartHQ login returned a Multi-Factor Authentication prompt instead of an authorization code; the integration cannot complete login automatically."
+            state.lastAuthError = "MFA challenge encountered"
+        }
+        else
+        {
+            log.warn "SmartHQ login did not return an authorization code (check username, password, and region; the login flow may have changed)."
+            state.lastAuthError = "Login failed (no authorization code)"
         }
     }
 
