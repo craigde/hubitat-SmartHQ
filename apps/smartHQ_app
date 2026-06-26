@@ -21,7 +21,7 @@ limitations under the License.
 
 Change history:
 
-1.0.5  - craigde - Login flow hardening + MFA-prompt handling.
+1.0.6  - craigde - Login flow hardening + MFA-prompt handling.
          (1) Harden the OAuth authorization-code parsing. The login redirect
          query-string parser used temp[1] after split("="), which threw
          ArrayIndexOutOfBoundsException when GE returned an empty-valued redirect
