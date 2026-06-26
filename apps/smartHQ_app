@@ -102,6 +102,7 @@ def mainPage()
 @Field cookie1       = "abgea_region=us-east-1; Domain=accounts.brillion.geappliances.com; HttpOnly; Path=/; Secure"
 @Field loginUrl      = "https://accounts.brillion.geappliances.com"
 
+
 def isLogEnable()
 {
     return logEnable
@@ -450,11 +451,13 @@ def genCookie1()
 {
     return (null == loginRegion) ? cookie1 : cookie1.replace("us-east-1", loginRegion)
 }
-
+/*
 def get_authorization_code()
 {
     def _csrf, signature
     def cookie2
+    def cookie3 = ""
+
 
     def params =
         [
@@ -543,6 +546,125 @@ def get_authorization_code()
 
     return paramsMap.code
 }
+*/
+
+def get_authorization_code()
+{
+    def _csrf, signature
+    def cookie2
+
+    def params =
+        [
+            uri: loginUrl + "/oauth2/auth",
+            query: [client_id: client_id, response_type: "code", access_type: "offline", redirect_uri: redirect_uri],
+            headers: [cookie: genCookie1()]
+        ]
+    
+    httpGet(params)
+    {
+        resp ->
+        signature = resp.data.'**'.find { it.@name.text() == 'signature' }?.@value?.text()        
+        def _csrfKey = resp.data.'**'.find { it.@name.text() == '_csrf' }
+        _csrf = _csrfKey?.@content?.text() ?: _csrfKey?.@value?.text()
+        cookie2 = resp.headers.find { it.name == "Set-Cookie" && it.value.contains("JSESSION") }?.value
+    }    
+    
+    def postParams =
+        [
+            body: [signature: signature, _csrf: _csrf, username: username, password: password],
+            uri: loginUrl + "/oauth2/g_authenticate",
+            followRedirects: false,
+            headers: [cookie: genCookie1(), cookie: cookie2]
+        ]
+    
+    
+    def paramsMap = [:]
+    def mfaSkipNeeded = false
+    
+httpPost(postParams)
+{
+    resp->
+    def locVal = resp.headers['Location']?.value
+    logDebug("g_authenticate Location: ${locVal}")
+    logDebug("g_authenticate cookies: ${resp.headers.findAll { it.name == 'Set-Cookie' }?.collect { it.value }}")
+
+    if(locVal?.contains("mfamethod") || locVal?.contains("security/add"))
+    {
+        mfaSkipNeeded = true
+        cookie3 = resp.headers.findAll { it.name == 'Set-Cookie' }
+                               .collect { it.value.split(';')[0].trim() }
+                               .join('; ')
+    }
+    else if(locVal)
+    {
+        def paramsList = locVal.substring(locVal.indexOf("?") + 1, locVal.length())
+        paramsList?.split("&").each
+        {
+            temp = it.split("=")
+            paramsMap.put(temp[0], temp[1])
+        }
+    }
+}
+
+if(mfaSkipNeeded)
+{
+    def mfaCsrf
+    def cookie4
+    
+    def mfaGetParams =
+        [
+            uri: loginUrl + "/account/active/security/add/mfamethod",
+            followRedirects: false,
+            headers: [cookie: cookie3]
+        ]
+    
+    httpGet(mfaGetParams)
+    {
+        resp3 ->
+        logDebug("mfaGet status: ${resp3.getStatus()}")
+        logDebug("mfaGet cookies: ${resp3.headers.findAll { it.name == 'Set-Cookie' }?.collect { it.value }}")
+        def _csrfKey = resp3.data.'**'.find { it.@name.text() == '_csrf' }
+        mfaCsrf = _csrfKey?.@content?.text() ?: _csrfKey?.@value?.text()
+        logDebug("mfaGet _csrf: ${mfaCsrf}")
+        // Merge any new cookies from MFA page with existing session cookies
+        def newCookies = resp3.headers.findAll { it.name == 'Set-Cookie' }
+                                      .collect { it.value.split(';')[0].trim() }
+        // Build a map starting from cookie3, overwriting with any new values
+        def cookieMap = [:]
+        cookie3.split('; ').each { kv -> def p = kv.split('=', 2); if(p.size() == 2) cookieMap[p[0]] = p[1] }
+        newCookies.each { kv -> def p = kv.split('=', 2); if(p.size() == 2) cookieMap[p[0]] = p[1] }
+        cookie4 = cookieMap.collect { k, v -> "${k}=${v}" }.join('; ')
+        logDebug("merged cookies: ${cookie4}")
+    }
+
+    def skipParams =
+        [
+            body: [mfaType: "", _csrf: mfaCsrf ?: _csrf],
+            uri: loginUrl + "/account/active/redirect",
+            followRedirects: false,
+            headers: [cookie: cookie4 ?: cookie3]
+        ]
+
+    httpPost(skipParams)
+    {
+        resp2 ->
+        def locVal2 = resp2.headers['Location']?.value
+        logDebug("skipMfa Location: ${locVal2}")
+        if(locVal2)
+        {
+            def paramsList = locVal2.substring(locVal2.indexOf("?") + 1, locVal2.length())
+            paramsList?.split("&").each
+            {
+                temp = it.split("=")
+                paramsMap.put(temp[0], temp[1])
+            }
+        }
+    }
+}
+    
+    return paramsMap.code    
+}
+
 
 def get_oauth2_token(type)
 {
