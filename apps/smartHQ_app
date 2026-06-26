@@ -21,14 +21,21 @@ limitations under the License.
 
 Change history:
 
-1.0.5  - craigde - Harden the OAuth authorization-code parsing. The login
-         redirect query-string parser used temp[1] after split("="), which
-         threw ArrayIndexOutOfBoundsException when GE returned an empty-valued
-         redirect param (e.g. "scope="), breaking full re-auth. Now splits on
-         the first '=' only and tolerates valueless params. When login returns
-         no authorization code (MFA challenge, bad credentials, or a changed
-         flow) the app now logs a clear reason and shows it on the config page
-         instead of failing silently into the reconnect backoff.
+1.0.5  - craigde - Login flow hardening + MFA-prompt handling.
+         (1) Harden the OAuth authorization-code parsing. The login redirect
+         query-string parser used temp[1] after split("="), which threw
+         ArrayIndexOutOfBoundsException when GE returned an empty-valued redirect
+         param (e.g. "scope="), breaking full re-auth. Parsing now splits on the
+         first '=' only and tolerates valueless params (shared parseRedirectParams
+         helper used by both redirect-parse sites).
+         (2) Auto-skip GE's non-persistent "test MFA" interstitial. When the
+         login redirect lands on the MFA prompt, the app now replicates the
+         website's "Skip" action (fetch the MFA page for a fresh _csrf, then POST
+         an empty mfaType to the redirect endpoint) and continues to the real
+         code redirect. MFA-skip flow contributed by youzer-name (GitHub PR #12).
+         (3) When login still returns no authorization code (MFA wall, bad
+         credentials, or a changed flow) the app logs a clear reason and shows it
+         on the config page instead of failing silently into the reconnect backoff.
 1.0.0  - craigde - Refactored from device driver to app architecture
 
 */
@@ -490,27 +497,28 @@ def get_authorization_code()
 
     def paramsMap = [:]
     def respBody = ""
+    def mfaSkipNeeded = false
+    def mfaCookies = ""
 
     httpPost(postParams)
     {
         resp->
 
         def locVal = resp.headers['Location']?.value
-        if(locVal && locVal.contains("?"))
+        logDebug("g_authenticate Location: ${locVal}")
+
+        if(locVal?.contains("mfamethod") || locVal?.contains("security/add"))
         {
-            def paramsList = locVal.substring(locVal.indexOf("?") + 1, locVal.length())
-            paramsList?.split("&").each
-            {
-                // split on the first '=' only, and tolerate params with no
-                // value. String.split drops trailing empty fields, so an
-                // empty-valued param like "scope=" yields a length-1 array;
-                // indexing temp[1] there throws ArrayIndexOutOfBoundsException.
-                def temp = it.split("=", 2)
-                if(temp[0])
-                {
-                    paramsMap.put(temp[0], (temp.size() > 1) ? temp[1] : "")
-                }
-            }
+            // GE is showing its non-persistent "test MFA" interstitial. Capture
+            // the post-login session cookies so we can drive the "Skip" below.
+            mfaSkipNeeded = true
+            mfaCookies = resp.headers.findAll { it.name == "Set-Cookie" }
+                                     .collect { it.value.split(";")[0].trim() }
+                                     .join("; ")
+        }
+        else if(locVal && locVal.contains("?"))
+        {
+            parseRedirectParams(locVal, paramsMap)
         }
         else
         {
@@ -521,6 +529,13 @@ def get_authorization_code()
         }
     }
 
+    if(mfaSkipNeeded)
+    {
+        // The MFA prompt offers a "Skip" option that isn't persistent, so we
+        // replicate it on every login to continue to the real code redirect.
+        skipMfaPrompt(mfaCookies, _csrf, paramsMap)
+    }
+
     if(paramsMap.code)
     {
         state.remove("lastAuthError")
@@ -529,7 +544,12 @@ def get_authorization_code()
     {
         // No code means we cannot complete login. Surface a clear, actionable
         // reason instead of failing silently into the reconnect backoff.
-        if(respBody =~ /(?i)multi-factor|multi factor|\bmfa\b|verification code/)
+        if(mfaSkipNeeded)
+        {
+            log.warn "SmartHQ login hit GE's MFA test prompt and the automatic Skip did not return an authorization code; the login flow may have changed."
+            state.lastAuthError = "MFA skip failed"
+        }
+        else if(respBody =~ /(?i)multi-factor|multi factor|\bmfa\b|verification code/)
         {
             log.warn "SmartHQ login returned a Multi-Factor Authentication prompt instead of an authorization code; the integration cannot complete login automatically."
             state.lastAuthError = "MFA challenge encountered"
@@ -542,6 +562,79 @@ def get_authorization_code()
     }
 
     return paramsMap.code
+}
+
+// Skip GE's non-persistent "test MFA" interstitial. Mirrors the website's
+// "Skip" button: GET the MFA page for a fresh _csrf, merge any new session
+// cookies on top of the post-login session, then POST an empty mfaType to the
+// redirect endpoint so the OAuth flow continues to the real code redirect.
+// MFA-skip flow contributed by youzer-name (GitHub PR #12).
+private skipMfaPrompt(sessionCookies, fallbackCsrf, paramsMap)
+{
+    def mfaCsrf
+    def cookies = sessionCookies
+
+    def mfaGetParams =
+        [
+            uri: loginUrl + "/account/active/security/add/mfamethod",
+            followRedirects: false,
+            headers: [cookie: sessionCookies]
+        ]
+
+    httpGet(mfaGetParams)
+    {
+        resp ->
+
+        def _csrfKey = resp.data.'**'.find { it.@name.text() == '_csrf' }
+        mfaCsrf = _csrfKey?.@content?.text() ?: _csrfKey?.@value?.text()
+
+        // merge cookies the MFA page sets on top of the existing session,
+        // keyed by name so we don't send duplicates
+        def cookieMap = [:]
+        sessionCookies.split("; ").each { kv -> def p = kv.split("=", 2); if(p.size() == 2) cookieMap[p[0]] = p[1] }
+        resp.headers.findAll { it.name == "Set-Cookie" }
+                    .collect { it.value.split(";")[0].trim() }
+                    .each { kv -> def p = kv.split("=", 2); if(p.size() == 2) cookieMap[p[0]] = p[1] }
+        cookies = cookieMap.collect { k, v -> "${k}=${v}" }.join("; ")
+    }
+
+    def skipParams =
+        [
+            body: [mfaType: "", _csrf: mfaCsrf ?: fallbackCsrf],
+            uri: loginUrl + "/account/active/redirect",
+            followRedirects: false,
+            headers: [cookie: cookies]
+        ]
+
+    httpPost(skipParams)
+    {
+        resp ->
+        def locVal = resp.headers['Location']?.value
+        logDebug("skipMfa Location: ${locVal}")
+        parseRedirectParams(locVal, paramsMap)
+    }
+}
+
+// Parse the query string of an OAuth redirect Location into paramsMap.
+// Splits on the first '=' only and tolerates valueless params: String.split
+// drops trailing empty fields, so an empty-valued param like "scope=" yields a
+// length-1 array and indexing [1] there throws ArrayIndexOutOfBoundsException.
+private parseRedirectParams(locVal, paramsMap)
+{
+    if(!(locVal && locVal.contains("?")))
+    {
+        return
+    }
+
+    def paramsList = locVal.substring(locVal.indexOf("?") + 1, locVal.length())
+    paramsList?.split("&").each
+    {
+        def temp = it.split("=", 2)
+        if(temp[0])
+        {
+            paramsMap.put(temp[0], (temp.size() > 1) ? temp[1] : "")
+        }
+    }
 }
 
 def get_oauth2_token(type)
