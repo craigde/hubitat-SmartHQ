@@ -35,6 +35,7 @@ metadata
         capability "FanControl"
         capability "FilterStatus"
         capability "Refresh"
+        command "reconnect"
         capability "Switch"
         capability "TemperatureMeasurement"
         capability "ThermostatCoolingSetpoint"
@@ -60,6 +61,16 @@ metadata
 }
 
 #include craigde.smarthqHelpers
+
+// Force the SmartHQ app to re-authenticate and rebuild the shared cloud
+// connection. The whole integration shares one WebSocket (owned by the
+// connector child), so triggering this on any single appliance reconnects
+// them all. Exposed as a command so it can be driven from a rule (e.g. a
+// watchdog that fires after a period of no appliance activity).
+def reconnect()
+{
+    parent?.initialize()
+}
 
 def fanModeNames()
 {
