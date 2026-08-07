@@ -21,6 +21,17 @@ limitations under the License.
 
 Change history:
 
+1.0.7  - Alan (patched) - Replaced the two resp.data.'**' GPath deep-search
+         calls (in get_authorization_code()'s login-page fetch and in
+         skipMfaPrompt()'s MFA-page fetch) with textParser:true + regex
+         extraction via a new extractAttr() helper. On the latest Hubitat
+         firmware, the internal HTTP client changed (now
+         com.hubitat.hub.executor.helpers.ExecutorHttpClient5) and no longer
+         reliably auto-parses these responses into a GPathResult, causing
+         "No such property: **" MissingPropertyException and breaking login
+         entirely on that firmware. Forcing textParser:true and pulling
+         'signature' / '_csrf' out with a regex avoids depending on Hubitat's
+         implicit HTML auto-parse behavior.
 1.0.6  - craigde - Login flow hardening + MFA-prompt handling.
          (1) Harden the OAuth authorization-code parsing. The login redirect
          query-string parser used temp[1] after split("="), which threw
@@ -458,6 +469,46 @@ def genCookie1()
     return (null == loginRegion) ? cookie1 : cookie1.replace("us-east-1", loginRegion)
 }
 
+//
+// HTML field extraction helper
+// Replaces the old resp.data.'**' GPath deep-search, which depended on
+// Hubitat auto-parsing the login/MFA page response into a GPathResult. On
+// the latest firmware that auto-parse behavior changed (internal HTTP client
+// is now com.hubitat.hub.executor.helpers.ExecutorHttpClient5), so '**'
+// throws MissingPropertyException. Pulling the plain response text with
+// textParser:true and regexing out the field avoids depending on that
+// auto-parse behavior at all.
+//
+// Looks for <tag name="fieldName" ... attr="value" ...> or
+// <tag ... attr="value" ... name="fieldName" ...> (attribute order can vary),
+// trying each attr name in attrs in order (e.g. 'content' before 'value' for
+// meta tags that may carry _csrf as content instead of value).
+//
+String extractAttr(String html, String fieldName, List attrs = ['value'])
+{
+    if(!html)
+    {
+        return null
+    }
+
+    for(attr in attrs)
+    {
+        def m = html =~ /(?s)<[^>]*\bname=["']${fieldName}["'][^>]*\b${attr}=["']([^"']*)["']/
+        if(m.find())
+        {
+            return m.group(1)
+        }
+
+        m = html =~ /(?s)<[^>]*\b${attr}=["']([^"']*)["'][^>]*\bname=["']${fieldName}["']/
+        if(m.find())
+        {
+            return m.group(1)
+        }
+    }
+
+    return null
+}
+
 def get_authorization_code()
 {
     def _csrf, signature
@@ -467,23 +518,26 @@ def get_authorization_code()
         [
             uri: loginUrl + "/oauth2/auth",
             query: [client_id: client_id, response_type: "code", access_type: "offline", redirect_uri: redirect_uri],
-            headers: [cookie: genCookie1()]
+            headers: [cookie: genCookie1()],
+            textParser: true
         ]
 
+    def html
     httpGet(params)
     {
         resp ->
 
         // extract values (signature, _csrf) from HTML login page contents
-        signature = resp.data.'**'.find { it.@name.text() == 'signature' }?.@value?.text()
-
-        def _csrfKey = resp.data.'**'.find { it.@name.text() == '_csrf' }
-        // _csrf may appear twice in the page, so get whichever one we found
-        _csrf = _csrfKey?.@content?.text() ?: _csrfKey?.@value?.text()
+        html = resp.data?.text ?: resp.data?.toString()
 
         // look for and capture the "JSESSION" header
         cookie2 = resp.headers.find { it.name == "Set-Cookie" && it.value.contains("JSESSION") }?.value
     }
+
+    signature = extractAttr(html, 'signature')
+    // _csrf may appear twice in the page (input value vs meta content), so
+    // try content first, then value
+    _csrf = extractAttr(html, '_csrf', ['content', 'value'])
 
     // both cookies must be sent together; a Groovy map literal silently
     // drops duplicate keys, so concatenate into a single Cookie header value
@@ -578,15 +632,16 @@ private skipMfaPrompt(sessionCookies, fallbackCsrf, paramsMap)
         [
             uri: loginUrl + "/account/active/security/add/mfamethod",
             followRedirects: false,
-            headers: [cookie: sessionCookies]
+            headers: [cookie: sessionCookies],
+            textParser: true
         ]
 
+    def html
     httpGet(mfaGetParams)
     {
         resp ->
 
-        def _csrfKey = resp.data.'**'.find { it.@name.text() == '_csrf' }
-        mfaCsrf = _csrfKey?.@content?.text() ?: _csrfKey?.@value?.text()
+        html = resp.data?.text ?: resp.data?.toString()
 
         // merge cookies the MFA page sets on top of the existing session,
         // keyed by name so we don't send duplicates
@@ -597,6 +652,8 @@ private skipMfaPrompt(sessionCookies, fallbackCsrf, paramsMap)
                     .each { kv -> def p = kv.split("=", 2); if(p.size() == 2) cookieMap[p[0]] = p[1] }
         cookies = cookieMap.collect { k, v -> "${k}=${v}" }.join("; ")
     }
+
+    mfaCsrf = extractAttr(html, '_csrf', ['content', 'value'])
 
     def skipParams =
         [
