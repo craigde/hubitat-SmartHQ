@@ -21,6 +21,9 @@ limitations under the License.
 
 Change history:
 
+1.0.7  - craigde - Added rinse-aid level attribute (rinseAgentStatus:
+         good/low/unknown) on ERD 0x3003. Byte-code mapping is model-specific
+         and empirically derived (thanks jmp / terminal3 on the Hubitat forum).
 1.0.0  - craigde - Forked and updated for app-based architecture
 0.9.7  - gassgs and tomw - Dishwasher commands for start, stop, and pod count management
 0.9.6  - tomw - Additional attributes for dishwasher
@@ -61,6 +64,7 @@ metadata
         
         attribute "sound", "enum", ["enable", "disable"]
         attribute "timeRemaining", "number"
+        attribute "rinseAgentStatus", "enum", ["good", "low", "unknown"]
     }
 }
 
@@ -126,6 +130,10 @@ def parse(item)
         
         case USER_INTERFACE_LOCKED:
             parseControlLock(item.value)
+            break
+
+        case DISHWASHER_RINSE_AGENT:
+            parseRinseAgent(item.value)
             break
     }
 }
@@ -204,6 +212,26 @@ def parseUserSetting(value)
     catch (Exception e)
     {
         logDebug("parseUserSetting error: ${e.message}")
+    }
+}
+
+// Rinse-aid level (ERD 0x3003). The byte-code -> level mapping is
+// model-specific and was worked out empirically by the community (thanks to
+// jmp / terminal3 on the Hubitat forum). Other dishwashers may report
+// different codes, so unknown values fall through to "unknown" and the raw
+// byte is logged at debug to make extending the map easy.
+def parseRinseAgent(value)
+{
+    try
+    {
+        def raw = decodeErdInt(subBytes(hubitat.helper.HexUtils.hexStringToByteArray(value), 0, 1))
+        def status = rinseAgentStates[raw]
+        sendEvent(name: "rinseAgentStatus", value: (null != status) ? status : "unknown")
+        logDebug("rinseAgentStatus: raw=${raw} -> ${status ?: 'unknown'}")
+    }
+    catch (Exception e)
+    {
+        logDebug("parseRinseAgent error: ${e.message}")
     }
 }
 
@@ -293,6 +321,12 @@ import groovy.transform.Field
 
 @Field Map UserWashZoneSetting =
     [ 0: "both", 1: "lower", 2: "upper" ]
+
+// Rinse-aid byte codes observed on jmp/terminal3's dishwasher: 0 and 4 report
+// "good", 2 and 6 report "low" (0x02 appears to be the low flag). This is
+// model-specific; unknown codes fall through to "unknown" and are logged.
+@Field Map rinseAgentStates =
+    [ 0: "good", 2: "low", 4: "good", 6: "low" ]
 
 @Field DISHWASHER_CYCLE_NAME = "0x301c"
 @Field DISHWASHER_CYCLE_STATE = "0x300e"
