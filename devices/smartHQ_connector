@@ -98,6 +98,12 @@ def closeConnection()
 
 def sendWssMessage(msg)
 {
+    if(!msg)
+    {
+        // toJson(null) is the string "null"; never put that on the socket
+        return
+    }
+
     try
     {
         def msgJson = groovy.json.JsonOutput.toJson(msg)

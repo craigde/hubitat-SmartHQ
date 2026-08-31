@@ -21,6 +21,21 @@ limitations under the License.
 
 Change history:
 
+1.0.10 - craigde - Report requests the cloud rejects instead of dropping them.
+         Every websocket#api reply carries its own HTTP-style status code, and
+         a refused request still arrives as a perfectly ordinary message - so
+         nothing threw, the send looked successful, and the failure was
+         invisible. That is why a dishwasher pod-count command that the cloud
+         refuses looked like nothing happening at all.
+         interpretResponse() now checks that status first and logs a warning
+         with the reason the cloud gave (e.g. "erd is not writable") before
+         dispatching. Appliance control commands also get a correlation id now
+         (smarthqHelpers buildAppCtrlSetter previously sent an empty id,
+         matching the reference python SDK), so their replies are matched to
+         the command that caused them rather than logged as an unrecognized
+         message. Also: sendWssMap() no longer forwards a null message, which
+         used to put the literal string "null" on the socket when a builder
+         bailed out.
 1.0.7  - Alan (patched) - Replaced the two resp.data.'**' GPath deep-search
          calls (in get_authorization_code()'s login-page fetch and in
          skipMfaPrompt()'s MFA-page fetch) with textParser:true + regex
@@ -253,6 +268,14 @@ def closeEventSocket()
 
 def sendWssMap(msg)
 {
+    if(!msg)
+    {
+        // a builder returned null (e.g. buildDevDetails before userId arrives).
+        // Sending anyway would put the literal string "null" on the socket.
+        logDebug("sendWssMap: nothing to send")
+        return
+    }
+
     def connector = getChildDevice(connectorDni())
     if(!connector)
     {
@@ -386,6 +409,28 @@ def getUserIdForChild()
 // api operations
 //
 
+// The cloud answers every websocket#api request with a message that carries
+// its own HTTP-style status code; a rejected request still arrives as an
+// ordinary message, so nothing throws and the send looks like it worked. Any
+// response we don't recognize used to be dropped with a bare debug line, which
+// is why a refused command (setting the dishwasher pod count, for example)
+// failed completely silently. Report the failure with the reason the cloud
+// gave so it is actionable.
+private isApiError(msgJson)
+{
+    def code = msgJson.body?.code ?: msgJson.code
+
+    return ("error" == msgJson.body?.kind) || ((code instanceof Number) && (code >= 400))
+}
+
+private logApiError(msgJson)
+{
+    def code = msgJson.body?.code ?: msgJson.code
+    def detail = [msgJson.body?.message, msgJson.body?.reason].findAll { it }.join(" - ")
+
+    log.warn "SmartHQ request rejected (${msgJson.request?.method ?: 'request'} ${msgJson.request?.path ?: msgJson.id}): ${code}${detail ? ' ' + detail : ''}"
+}
+
 def interpretResponse(msgJson)
 {
     if(!msgJson)
@@ -396,6 +441,12 @@ def interpretResponse(msgJson)
     if(msgJson.kind == "websocket#api")
     {
         // this is an API response
+
+        if(isApiError(msgJson))
+        {
+            logApiError(msgJson)
+            return
+        }
 
         switch(msgJson.id)
         {
@@ -420,7 +471,12 @@ def interpretResponse(msgJson)
                 break
 
             case ~/.*-setErd.*/:
-                // this is a response to setting an ERD.  ignore it.
+                // successful response to setting an ERD.  nothing to do.
+                break
+
+            case ~/.*-control-.*/:
+                // successful response to an appliance control command
+                logDebug("control command accepted: ${msgJson.id}")
                 break
 
             default:
