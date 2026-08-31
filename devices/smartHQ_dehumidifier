@@ -23,6 +23,8 @@ limitations under the License.
 
 Change history:
 
+1.0.5  - Alan_F  - 2026-08-31: Replaced individual ERD codes for 'bucket full' and 'clean filter'
+                   with new DH_MAINTENANCE code
 1.0.4  - craigde - Integrated Alan_F's dehumidifier driver into the SmartHQ
                    package. Declared Actuator / FilterStatus / FanControl
                    capabilities alongside the attributes that already
@@ -257,22 +259,23 @@ def parse(item)
                 }
                 break
 
-            // Filter status - emit standard FilterStatus values
-            case DH_FILTER_STATUS:
-                def filterVal = parseHex(rawValue)
-                def status = filterVal ? "replace" : "normal"
-                sendEvent(name: "filterStatus", value: status)
-                logDebug("Parsed Filter Status: ${status}")
-                logInfo("Filter Status: ${status}")
-                break
+            // Maintenance bitmask - bit 0 = empty bucket, bit 1 = clean filter
+            case DH_MAINTENANCE:
+                def maintVal = parseHex(rawValue?.substring(0, 2))
+                if (maintVal != null)
+                {
+                    def bucketFull = (maintVal & 0x01) != 0
+                    def filterDirty = (maintVal & 0x02) != 0
+                    sendEvent(name: "bucketStatus", value: bucketFull ? "full" : "ok")
+                    sendEvent(name: "filterStatus", value: filterDirty ? "replace" : "normal")
 
-            // Bucket status - not a standard Hubitat capability
-            case DH_BUCKET_STATUS:
-                def bucketVal = parseHex(rawValue)
-                def status = bucketVal ? "full" : "ok"
-                sendEvent(name: "bucketStatus", value: status)
-                logDebug("Parsed Bucket Status: ${status}")
-                logInfo("Bucket Status: ${status}")
+                    logDebug("Parsed Maintenance: bucket=${bucketFull ? 'full' : 'ok'}, filter=${filterDirty ? 'replace' : 'normal'}")
+                    logInfo("Bucket: ${bucketFull ? 'full' : 'ok'}, Filter: ${filterDirty ? 'replace' : 'normal'}")
+                }
+                else
+                {
+                    logUnknown(erdCode, rawValue)
+                }
                 break
 
             case DH_FILTER_LIFE:
@@ -433,3 +436,4 @@ import groovy.transform.Field
 @Field DH_ERROR_CODE          = "0x7a13"
 @Field DH_CONTINUOUS_MODE_A   = "0x7833"
 @Field DH_CONTINUOUS_MODE_B   = "0x7834"
+@Field DH_MAINTENANCE         = "0x7832"
