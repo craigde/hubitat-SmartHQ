@@ -21,6 +21,26 @@ limitations under the License.
 
 Change history:
 
+1.0.10 - craigde - adjustNumberOfPods diagnostics and argument hardening,
+         after a report that setting the pod count stopped working while the
+         SmartHQ phone app can still set it.
+         Not a fix for the reported regression, and not claimed as one. The
+         message this command sends is still byte-for-byte what the reference
+         python SDK sends, and when invoked from the device detail page its
+         payload was already well formed. What was wrong is that the command
+         was fire-and-forget: nothing on the Hubitat side ever looked at the
+         cloud's answer, so a rejection was completely invisible and there was
+         no way to tell a changed API from a bad payload. The app now reports
+         those rejections (see smartHQ_app 1.0.10) at warn level, so the log
+         will name the reason the cloud gave without enabling debug logging.
+         Also fixed here, real but a different path: Hubitat does not pass a
+         NUMBER command parameter as one consistent type. The device detail
+         page gives a BigDecimal, which serializes correctly as 5, but a Rule
+         Machine custom action gives a String, which serialized as "5" - a JSON
+         string where the API wants the integer 5 - and a non-numeric argument
+         threw IllegalArgumentException out of the "number < 0" guard. Both
+         arguments are now normalized, and invalid input is logged with a
+         reason instead of silently doing nothing.
 1.0.7  - craigde - Added rinse-aid level attribute (rinseAgentStatus:
          good/low/unknown) on ERD 0x3003. Byte-code mapping is model-specific
          and empirically derived (thanks jmp / terminal3 on the Hubitat forum).
@@ -249,13 +269,49 @@ def stop()
     parent?.sendWssMap(ctrlMap)
 }
 
+// The cloud validates this payload server-side, and a rejection comes back as
+// an ordinary response message rather than as an error the send would notice
+// (the app logs those - see interpretResponse), so normalize both arguments
+// before building the message.
+//
+// Hubitat does not hand command arguments over in one consistent type: a
+// NUMBER parameter arrives as a BigDecimal from the device detail page, which
+// serializes correctly as 5, but as a String from a Rule Machine custom
+// action, which serialized as "5" - a JSON string where the API wants the
+// integer 5. The old "number < 0" guard also compared the raw argument against
+// an int; that is merely false for a numeric String, but throws
+// IllegalArgumentException for anything non-numeric.
 def adjustNumberOfPods(op, number)
 {
-    if(number < 0) { return }
-    
-    def body = [[name: "operation", value: op], [name: "pods-count", value: number]]
+    def operation = op?.toString()?.trim()?.toLowerCase()
+    if(!(operation in ["add", "subtract", "set"]))
+    {
+        log.warn "adjustNumberOfPods: invalid operation '${op}' (expected add, subtract, or set)"
+        return
+    }
+
+    def count
+    try
+    {
+        count = (number instanceof Number) ? number.intValue() : "${number}".trim().toBigDecimal().intValue()
+    }
+    catch (Exception e)
+    {
+        log.warn "adjustNumberOfPods: '${number}' is not a valid number of pods"
+        return
+    }
+
+    if(count < 0)
+    {
+        log.warn "adjustNumberOfPods: number of pods cannot be negative (${count})"
+        return
+    }
+
+    def body = [[name: "operation", value: operation], [name: "pods-count", value: count]]
     def ctrlMap = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods", body))
-    
+
+    logDebug("adjustNumberOfPods: ${operation} ${count}")
+
     parent?.sendWssMap(ctrlMap)
 }
 

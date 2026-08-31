@@ -216,7 +216,14 @@ def buildAppCtrlSetter(devDetails, cmdDetails)
         ]
 
     def path = "/v1/appliance/${devDetails.mac}/control/${cmdDetails.cmd}"
-    def id = ""
+
+    // Correlation id echoed back on the response. The original code (and the
+    // reference python SDK) sent an empty id here, which meant the cloud's
+    // reply - including an outright rejection - could not be matched to the
+    // command that caused it and was dropped by the app as an unrecognized
+    // message. Naming it the same way buildErdSetter does lets the app report
+    // failures instead of silently swallowing them.
+    def id = "${devDetails.mac}-control-${cmdDetails.cmd}"
     def message = buildWssMsg("POST", path, id, body)
 
     return message
