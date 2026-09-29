@@ -21,6 +21,18 @@ limitations under the License.
 
 Change history:
 
+(unreleased, diagnostic only - deliberately NOT in packageManifest.json, so
+         HPM users do not get a debug button they have no use for)
+       - craigde - TEMPORARY diagnoseSetPods command, to be removed once the
+         pod-count payload is settled. 1.0.10's error reporting did its job:
+         dishwasher-set-pods now comes back as "400 ... malformed syntax -
+         Invalid JSON" on every operation. That rules out a retired endpoint
+         (the reply still echoes our path), rules out auth, and points at the
+         shape of body.data. There is no reference implementation to copy - the
+         python SDK never calls its own send-command method and has no pod
+         support - so rather than guess one shape and ship it to everyone,
+         diagnoseSetPods sends one candidate shape per run and logs the exact
+         payload. See the comment on the method for the list.
 1.0.10 - craigde - adjustNumberOfPods diagnostics and argument hardening,
          after a report that setting the pod count stopped working while the
          SmartHQ phone app can still set it.
@@ -63,6 +75,10 @@ metadata
         capability "Switch"
         
         command "adjustNumberOfPods", [[name:"Operation*", type:"ENUM", constraints: ["add","subtract","set"]], [name: "numberOfPods*", type:"NUMBER"]]
+
+        // TEMPORARY - remove once we know which payload shape the cloud wants.
+        // See diagnoseSetPods() below.
+        command "diagnoseSetPods", [[name:"Payload variant*", type:"ENUM", constraints: ["1-array-int", "2-array-string", "3-object", "4-json-string", "5-erd-write"]], [name: "numberOfPods*", type:"NUMBER"]]
         
         command "setControlLock", [[name: "Control Lockout?*", type:"ENUM", constraints: [true, false]]]
         attribute "controlPanel", "string"
@@ -313,6 +329,92 @@ def adjustNumberOfPods(op, number)
     logDebug("adjustNumberOfPods: ${operation} ${count}")
 
     parent?.sendWssMap(ctrlMap)
+}
+
+// TEMPORARY DIAGNOSTIC - not part of the driver's normal surface, and to be
+// deleted once this is resolved.
+//
+// As of 1.0.10 the cloud answers dishwasher-set-pods with:
+//   400 The request could not be understood by the server due to malformed
+//   syntax - Invalid JSON.
+// on every operation (set / add / subtract). That error tells us a fair bit:
+// the endpoint still exists and still routes (the reply echoes our path), the
+// token and userId are fine, and the outer envelope parses - otherwise we would
+// get no route at all. What the cloud will not accept is the shape of
+// body.data. The envelope we send is byte-for-byte what the reference python
+// SDK builds, and nothing in that SDK ever calls its own send-command method,
+// so there is no reference implementation of this payload to copy. The command
+// was reverse-engineered from the phone app in 2022 and GE has evidently moved
+// on.
+//
+// Rather than guess and ship one shape to everyone, this sends exactly one
+// candidate per run so the working one can be identified from the logs:
+//   1-array-int    what we send today: [{name, value:5}]   (the 2022 shape)
+//   2-array-string the same, but value as a string: "5"
+//   3-object       data as a map: {"operation":"set","pods-count":5}
+//   4-json-string  data as a JSON-encoded string
+//   5-erd-write    skip the control endpoint; write pods ERD 0x301f directly
+// Run each in turn and watch for the "SmartHQ request rejected" warning. The
+// variant that produces no warning, and moves podsRemaining, is the answer.
+def diagnoseSetPods(variant, number)
+{
+    def count
+    try
+    {
+        count = (number instanceof Number) ? number.intValue() : "${number}".trim().toBigDecimal().intValue()
+    }
+    catch (Exception e)
+    {
+        log.warn "diagnoseSetPods: '${number}' is not a valid number of pods"
+        return
+    }
+
+    def msg
+
+    switch(variant?.toString())
+    {
+        case "1-array-int":
+            msg = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods",
+                [[name: "operation", value: "set"], [name: "pods-count", value: count]]))
+            break
+
+        case "2-array-string":
+            msg = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods",
+                [[name: "operation", value: "set"], [name: "pods-count", value: count.toString()]]))
+            break
+
+        case "3-object":
+            msg = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods",
+                ["operation": "set", "pods-count": count]))
+            break
+
+        case "4-json-string":
+            def asString = groovy.json.JsonOutput.toJson([[name: "operation", value: "set"], [name: "pods-count", value: count]])
+            msg = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods", asString))
+            break
+
+        case "5-erd-write":
+            // Pods remaining is reported on 0x301f. Whether it is writable is
+            // exactly what this tests; "erd is not writable" is a clean answer.
+            msg = buildErdSetter(buildDevDetails(), buildErdDetails(DISHWASHER_PODS_REMAINING_VALUE, encodeErdInt(count, 1)))
+            break
+
+        default:
+            log.warn "diagnoseSetPods: unknown variant '${variant}'"
+            return
+    }
+
+    if(!msg)
+    {
+        log.warn "diagnoseSetPods: could not build the message (is the cloud connection up?)"
+        return
+    }
+
+    // log.info rather than logDebug so the payload lands in the log without
+    // needing the app's debug switch on
+    log.info "diagnoseSetPods variant=${variant} sending: ${groovy.json.JsonOutput.toJson(msg)}"
+
+    parent?.sendWssMap(msg)
 }
 
 import groovy.transform.Field
