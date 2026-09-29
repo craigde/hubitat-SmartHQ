@@ -21,18 +21,21 @@ limitations under the License.
 
 Change history:
 
-(unreleased, diagnostic only - deliberately NOT in packageManifest.json, so
-         HPM users do not get a debug button they have no use for)
-       - craigde - TEMPORARY diagnoseSetPods command, to be removed once the
-         pod-count payload is settled. 1.0.10's error reporting did its job:
-         dishwasher-set-pods now comes back as "400 ... malformed syntax -
-         Invalid JSON" on every operation. That rules out a retired endpoint
-         (the reply still echoes our path), rules out auth, and points at the
-         shape of body.data. There is no reference implementation to copy - the
-         python SDK never calls its own send-command method and has no pod
-         support - so rather than guess one shape and ship it to everyone,
-         diagnoseSetPods sends one candidate shape per run and logs the exact
-         payload. See the comment on the method for the list.
+1.0.11 - craigde - Fix setting the number of pods (reported by terminal3).
+         1.0.10's error reporting pinned it down: the "dishwasher-set-pods"
+         appliance#control command now gets "400 ... malformed syntax - Invalid
+         JSON" back for every operation. That command was reverse-engineered
+         from the phone app in 2022 and GE has retired it - nothing in
+         gehomesdk or Home Assistant's ge_home integration calls the control
+         endpoint at all any more.
+         What Home Assistant does instead, and what works, is write pods ERD
+         0x301f directly: ge_home exposes pods as a writable GeErdNumber on
+         that ERD, and gehomesdk encodes it through ErdIntConverter at its
+         default 2-byte width. adjustNumberOfPods now does the same.
+         Because an ERD write is absolute, "add" and "subtract" are computed
+         here from the current podsRemaining reading instead of by the cloud,
+         and now ask for a Refresh if that reading has not arrived yet. "set"
+         is unaffected.
 1.0.10 - craigde - adjustNumberOfPods diagnostics and argument hardening,
          after a report that setting the pod count stopped working while the
          SmartHQ phone app can still set it.
@@ -75,10 +78,6 @@ metadata
         capability "Switch"
         
         command "adjustNumberOfPods", [[name:"Operation*", type:"ENUM", constraints: ["add","subtract","set"]], [name: "numberOfPods*", type:"NUMBER"]]
-
-        // TEMPORARY - remove once we know which payload shape the cloud wants.
-        // See diagnoseSetPods() below.
-        command "diagnoseSetPods", [[name:"Payload variant*", type:"ENUM", constraints: ["1-array-int", "2-array-string", "3-object", "4-json-string", "5-erd-write"]], [name: "numberOfPods*", type:"NUMBER"]]
         
         command "setControlLock", [[name: "Control Lockout?*", type:"ENUM", constraints: [true, false]]]
         attribute "controlPanel", "string"
@@ -285,18 +284,22 @@ def stop()
     parent?.sendWssMap(ctrlMap)
 }
 
-// The cloud validates this payload server-side, and a rejection comes back as
-// an ordinary response message rather than as an error the send would notice
-// (the app logs those - see interpretResponse), so normalize both arguments
-// before building the message.
+// Set the detergent pod count.
 //
-// Hubitat does not hand command arguments over in one consistent type: a
-// NUMBER parameter arrives as a BigDecimal from the device detail page, which
-// serializes correctly as 5, but as a String from a Rule Machine custom
-// action, which serialized as "5" - a JSON string where the API wants the
-// integer 5. The old "number < 0" guard also compared the raw argument against
-// an int; that is merely false for a numeric String, but throws
-// IllegalArgumentException for anything non-numeric.
+// This writes pods-remaining ERD 0x301f directly. It used to POST the
+// "dishwasher-set-pods" appliance#control command that gassgs reverse-engineered
+// from the phone app in 2022; as of 2026 the cloud answers that command with
+// "400 ... malformed syntax - Invalid JSON" for every operation, so it is gone.
+// The ERD write is what Home Assistant's ge_home integration does (it exposes
+// pods as a writable GeErdNumber on this ERD and never uses the control
+// endpoint at all), and that integration works, so this follows it: a 2-byte
+// big-endian value, matching gehomesdk's ErdIntConverter default length.
+//
+// One behavioural consequence: the ERD write is absolute, so "add" and
+// "subtract" are now computed here from the current podsRemaining reading
+// rather than by the cloud. If we have not seen that reading yet, there is
+// nothing to add to, so those two operations ask for a Refresh first. "set"
+// never needs it.
 def adjustNumberOfPods(op, number)
 {
     def operation = op?.toString()?.trim()?.toLowerCase()
@@ -323,98 +326,33 @@ def adjustNumberOfPods(op, number)
         return
     }
 
-    def body = [[name: "operation", value: operation], [name: "pods-count", value: count]]
-    def ctrlMap = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods", body))
+    def target = count
 
-    logDebug("adjustNumberOfPods: ${operation} ${count}")
-
-    parent?.sendWssMap(ctrlMap)
-}
-
-// TEMPORARY DIAGNOSTIC - not part of the driver's normal surface, and to be
-// deleted once this is resolved.
-//
-// As of 1.0.10 the cloud answers dishwasher-set-pods with:
-//   400 The request could not be understood by the server due to malformed
-//   syntax - Invalid JSON.
-// on every operation (set / add / subtract). That error tells us a fair bit:
-// the endpoint still exists and still routes (the reply echoes our path), the
-// token and userId are fine, and the outer envelope parses - otherwise we would
-// get no route at all. What the cloud will not accept is the shape of
-// body.data. The envelope we send is byte-for-byte what the reference python
-// SDK builds, and nothing in that SDK ever calls its own send-command method,
-// so there is no reference implementation of this payload to copy. The command
-// was reverse-engineered from the phone app in 2022 and GE has evidently moved
-// on.
-//
-// Rather than guess and ship one shape to everyone, this sends exactly one
-// candidate per run so the working one can be identified from the logs:
-//   1-array-int    what we send today: [{name, value:5}]   (the 2022 shape)
-//   2-array-string the same, but value as a string: "5"
-//   3-object       data as a map: {"operation":"set","pods-count":5}
-//   4-json-string  data as a JSON-encoded string
-//   5-erd-write    skip the control endpoint; write pods ERD 0x301f directly
-// Run each in turn and watch for the "SmartHQ request rejected" warning. The
-// variant that produces no warning, and moves podsRemaining, is the answer.
-def diagnoseSetPods(variant, number)
-{
-    def count
-    try
+    if("set" != operation)
     {
-        count = (number instanceof Number) ? number.intValue() : "${number}".trim().toBigDecimal().intValue()
-    }
-    catch (Exception e)
-    {
-        log.warn "diagnoseSetPods: '${number}' is not a valid number of pods"
-        return
-    }
-
-    def msg
-
-    switch(variant?.toString())
-    {
-        case "1-array-int":
-            msg = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods",
-                [[name: "operation", value: "set"], [name: "pods-count", value: count]]))
-            break
-
-        case "2-array-string":
-            msg = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods",
-                [[name: "operation", value: "set"], [name: "pods-count", value: count.toString()]]))
-            break
-
-        case "3-object":
-            msg = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods",
-                ["operation": "set", "pods-count": count]))
-            break
-
-        case "4-json-string":
-            def asString = groovy.json.JsonOutput.toJson([[name: "operation", value: "set"], [name: "pods-count", value: count]])
-            msg = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods", asString))
-            break
-
-        case "5-erd-write":
-            // Pods remaining is reported on 0x301f. Whether it is writable is
-            // exactly what this tests; "erd is not writable" is a clean answer.
-            msg = buildErdSetter(buildDevDetails(), buildErdDetails(DISHWASHER_PODS_REMAINING_VALUE, encodeErdInt(count, 1)))
-            break
-
-        default:
-            log.warn "diagnoseSetPods: unknown variant '${variant}'"
+        def current = device.currentValue("podsRemaining")
+        if(null == current)
+        {
+            log.warn "adjustNumberOfPods: podsRemaining is not known yet, so '${operation}' has nothing to work from - hit Refresh (or use 'set') "
             return
+        }
+
+        target = ("add" == operation) ? (current.intValue() + count) : (current.intValue() - count)
     }
 
-    if(!msg)
+    // 0x301f carries a 2-byte value, so clamp to what the wire format holds
+    // and to a count that means something.
+    def clamped = Math.max(0, Math.min(target, 65535))
+    if(clamped != target)
     {
-        log.warn "diagnoseSetPods: could not build the message (is the cloud connection up?)"
-        return
+        log.warn "adjustNumberOfPods: ${operation} ${count} would give ${target} pods; clamping to ${clamped}"
     }
 
-    // log.info rather than logDebug so the payload lands in the log without
-    // needing the app's debug switch on
-    log.info "diagnoseSetPods variant=${variant} sending: ${groovy.json.JsonOutput.toJson(msg)}"
+    def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(DISHWASHER_PODS_REMAINING_VALUE, encodeErdInt(clamped, 2)))
 
-    parent?.sendWssMap(msg)
+    logDebug("adjustNumberOfPods: ${operation} ${count} -> writing ${clamped} to ${DISHWASHER_PODS_REMAINING_VALUE}")
+
+    parent?.sendWssMap(erdMap)
 }
 
 import groovy.transform.Field
