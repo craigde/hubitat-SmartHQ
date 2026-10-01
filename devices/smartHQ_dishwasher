@@ -21,6 +21,21 @@ limitations under the License.
 
 Change history:
 
+1.0.11 - craigde - Fix setting the number of pods (reported by terminal3).
+         1.0.10's error reporting pinned it down: the "dishwasher-set-pods"
+         appliance#control command now gets "400 ... malformed syntax - Invalid
+         JSON" back for every operation. That command was reverse-engineered
+         from the phone app in 2022 and GE has retired it - nothing in
+         gehomesdk or Home Assistant's ge_home integration calls the control
+         endpoint at all any more.
+         What Home Assistant does instead, and what works, is write pods ERD
+         0x301f directly: ge_home exposes pods as a writable GeErdNumber on
+         that ERD, and gehomesdk encodes it through ErdIntConverter at its
+         default 2-byte width. adjustNumberOfPods now does the same.
+         Because an ERD write is absolute, "add" and "subtract" are computed
+         here from the current podsRemaining reading instead of by the cloud,
+         and now ask for a Refresh if that reading has not arrived yet. "set"
+         is unaffected.
 1.0.10 - craigde - adjustNumberOfPods diagnostics and argument hardening,
          after a report that setting the pod count stopped working while the
          SmartHQ phone app can still set it.
@@ -269,18 +284,22 @@ def stop()
     parent?.sendWssMap(ctrlMap)
 }
 
-// The cloud validates this payload server-side, and a rejection comes back as
-// an ordinary response message rather than as an error the send would notice
-// (the app logs those - see interpretResponse), so normalize both arguments
-// before building the message.
+// Set the detergent pod count.
 //
-// Hubitat does not hand command arguments over in one consistent type: a
-// NUMBER parameter arrives as a BigDecimal from the device detail page, which
-// serializes correctly as 5, but as a String from a Rule Machine custom
-// action, which serialized as "5" - a JSON string where the API wants the
-// integer 5. The old "number < 0" guard also compared the raw argument against
-// an int; that is merely false for a numeric String, but throws
-// IllegalArgumentException for anything non-numeric.
+// This writes pods-remaining ERD 0x301f directly. It used to POST the
+// "dishwasher-set-pods" appliance#control command that gassgs reverse-engineered
+// from the phone app in 2022; as of 2026 the cloud answers that command with
+// "400 ... malformed syntax - Invalid JSON" for every operation, so it is gone.
+// The ERD write is what Home Assistant's ge_home integration does (it exposes
+// pods as a writable GeErdNumber on this ERD and never uses the control
+// endpoint at all), and that integration works, so this follows it: a 2-byte
+// big-endian value, matching gehomesdk's ErdIntConverter default length.
+//
+// One behavioural consequence: the ERD write is absolute, so "add" and
+// "subtract" are now computed here from the current podsRemaining reading
+// rather than by the cloud. If we have not seen that reading yet, there is
+// nothing to add to, so those two operations ask for a Refresh first. "set"
+// never needs it.
 def adjustNumberOfPods(op, number)
 {
     def operation = op?.toString()?.trim()?.toLowerCase()
@@ -307,12 +326,33 @@ def adjustNumberOfPods(op, number)
         return
     }
 
-    def body = [[name: "operation", value: operation], [name: "pods-count", value: count]]
-    def ctrlMap = buildAppCtrlSetter(buildDevDetails(), buildCmdDetails("dishwasher-set-pods", body))
+    def target = count
 
-    logDebug("adjustNumberOfPods: ${operation} ${count}")
+    if("set" != operation)
+    {
+        def current = device.currentValue("podsRemaining")
+        if(null == current)
+        {
+            log.warn "adjustNumberOfPods: podsRemaining is not known yet, so '${operation}' has nothing to work from - hit Refresh (or use 'set') "
+            return
+        }
 
-    parent?.sendWssMap(ctrlMap)
+        target = ("add" == operation) ? (current.intValue() + count) : (current.intValue() - count)
+    }
+
+    // 0x301f carries a 2-byte value, so clamp to what the wire format holds
+    // and to a count that means something.
+    def clamped = Math.max(0, Math.min(target, 65535))
+    if(clamped != target)
+    {
+        log.warn "adjustNumberOfPods: ${operation} ${count} would give ${target} pods; clamping to ${clamped}"
+    }
+
+    def erdMap = buildErdSetter(buildDevDetails(), buildErdDetails(DISHWASHER_PODS_REMAINING_VALUE, encodeErdInt(clamped, 2)))
+
+    logDebug("adjustNumberOfPods: ${operation} ${count} -> writing ${clamped} to ${DISHWASHER_PODS_REMAINING_VALUE}")
+
+    parent?.sendWssMap(erdMap)
 }
 
 import groovy.transform.Field
