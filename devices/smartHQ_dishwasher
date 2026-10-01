@@ -21,6 +21,23 @@ limitations under the License.
 
 Change history:
 
+1.0.12 - craigde - Decode ERD 0x3003 as the reminder bitfield it actually is
+         (thanks terminal3 for running this down). It is not a rinse-aid level:
+         bit 0 means clean the drain filter, bit 1 means rinse aid is low, bit 2
+         means the last cycle met GE's sanitize claim. Confirmed against
+         gehomesdk's ErdRemindersSettingConverter, which decodes the same three
+         bits.
+         This fixes a real bug. The old code looked the raw byte up in a table
+         that only listed 0, 2, 4 and 6, so every odd value - every value with
+         the drain-filter reminder set - missed the table and reported
+         rinseAgentStatus as "unknown". The rinse-aid reading would have dropped
+         out precisely when the filter needed cleaning, which would have looked
+         like a random glitch. Masking bit 1 also makes it model-independent,
+         where the table was derived from one appliance.
+         The other two bits were being decoded and thrown away, so they are now
+         surfaced too: filterStatus (via the standard FilterStatus capability,
+         normal/replace, as the other drivers in this package use) and a new
+         sanitized attribute.
 1.0.11 - craigde - Fix setting the number of pods (reported by terminal3).
          1.0.10's error reporting pinned it down: the "dishwasher-set-pods"
          appliance#control command now gets "400 ... malformed syntax - Invalid
@@ -73,6 +90,7 @@ metadata
     {
         capability "Actuator"
         capability "ContactSensor"
+        capability "FilterStatus"
         capability "Refresh"
         command "reconnect"
         capability "Switch"
@@ -99,7 +117,10 @@ metadata
         
         attribute "sound", "enum", ["enable", "disable"]
         attribute "timeRemaining", "number"
+
+        // all three decoded from the reminder bitfield on ERD 0x3003
         attribute "rinseAgentStatus", "enum", ["good", "low", "unknown"]
+        attribute "sanitized", "enum", ["yes", "no"]
     }
 }
 
@@ -167,8 +188,8 @@ def parse(item)
             parseControlLock(item.value)
             break
 
-        case DISHWASHER_RINSE_AGENT:
-            parseRinseAgent(item.value)
+        case DISHWASHER_REMINDERS:
+            parseReminders(item.value)
             break
     }
 }
@@ -250,23 +271,49 @@ def parseUserSetting(value)
     }
 }
 
-// Rinse-aid level (ERD 0x3003). The byte-code -> level mapping is
-// model-specific and was worked out empirically by the community (thanks to
-// jmp / terminal3 on the Hubitat forum). Other dishwashers may report
-// different codes, so unknown values fall through to "unknown" and the raw
-// byte is logged at debug to make extending the map easy.
-def parseRinseAgent(value)
+// ERD 0x3003 is the dishwasher's reminder bitfield - not a rinse-aid level, which
+// is how we first read it:
+//   bit 0 (0x01) - clean the drain filter
+//   bit 1 (0x02) - rinse aid is low
+//   bit 2 (0x04) - the last cycle met GE's sanitize claim (NSF/ANSI 184 on
+//                  models that advertise it)
+// Bit assignments confirmed against gehomesdk's ErdRemindersSettingConverter,
+// which decodes clean_filter / add_rinse_aid / sanitized from exactly these
+// three bits, and against terminal3's observations on a GE Profile PDT775SYNFS:
+// 4 -> 6 while the door is still shut (sanitize set, rinse aid going low), then
+// 0 -> 2 once the door is opened and the sanitize bit clears.
+//
+// This replaces a lookup table that only listed the even values (0, 2, 4, 6).
+// Every odd value was a table miss, so rinseAgentStatus read "unknown" exactly
+// when the drain-filter reminder was on - the one time you most want the rest of
+// the byte to still make sense. Masking the bit also makes this model-independent,
+// where the table was guesswork from one appliance.
+def parseReminders(value)
 {
     try
     {
-        def raw = decodeErdInt(subBytes(hubitat.helper.HexUtils.hexStringToByteArray(value), 0, 1))
-        def status = rinseAgentStates[raw]
-        sendEvent(name: "rinseAgentStatus", value: (null != status) ? status : "unknown")
-        logDebug("rinseAgentStatus: raw=${raw} -> ${status ?: 'unknown'}")
+        // decode the whole value rather than just byte 0, the way the reference
+        // SDK does, so this still lands on the right bits if a model reports it
+        // wider than a single byte
+        def raw = decodeErdInt(hubitat.helper.HexUtils.hexStringToByteArray(value))
+
+        def cleanFilter = (raw & 0x01) != 0
+        def rinseAidLow = (raw & 0x02) != 0
+        def sanitized   = (raw & 0x04) != 0
+
+        def events = []
+        events += [name: "filterStatus",     value: cleanFilter ? "replace" : "normal"]
+        events += [name: "rinseAgentStatus", value: rinseAidLow ? "low" : "good"]
+        events += [name: "sanitized",        value: sanitized   ? "yes" : "no"]
+
+        flushEvents(events)
+
+        logDebug("reminders: raw=${raw} -> filter=${cleanFilter ? 'replace' : 'normal'}, rinseAgent=${rinseAidLow ? 'low' : 'good'}, sanitized=${sanitized ? 'yes' : 'no'}")
     }
     catch (Exception e)
     {
-        logDebug("parseRinseAgent error: ${e.message}")
+        logDebug("parseReminders error: ${e.message}")
+        sendEvent(name: "rinseAgentStatus", value: "unknown")
     }
 }
 
@@ -418,17 +465,11 @@ import groovy.transform.Field
 @Field Map UserWashZoneSetting =
     [ 0: "both", 1: "lower", 2: "upper" ]
 
-// Rinse-aid byte codes observed on jmp/terminal3's dishwasher: 0 and 4 report
-// "good", 2 and 6 report "low" (0x02 appears to be the low flag). This is
-// model-specific; unknown codes fall through to "unknown" and are logged.
-@Field Map rinseAgentStates =
-    [ 0: "good", 2: "low", 4: "good", 6: "low" ]
-
 @Field DISHWASHER_CYCLE_NAME = "0x301c"
 @Field DISHWASHER_CYCLE_STATE = "0x300e"
 @Field DISHWASHER_OPERATING_MODE = "0x3001"
 @Field DISHWASHER_PODS_REMAINING_VALUE = "0x301f"
-@Field DISHWASHER_RINSE_AGENT = "0x3003"
+@Field DISHWASHER_REMINDERS = "0x3003"
 @Field DISHWASHER_USER_SETTING = "0x3007"
 @Field DISHWASHER_TIME_REMAINING = "0xd004"
 @Field DISHWASHER_UNKNOWN_3009 = "0x3009"
