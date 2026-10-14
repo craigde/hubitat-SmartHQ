@@ -21,6 +21,12 @@ limitations under the License.
 
 Change history:
 
+1.0.13 - craigde - Report when the Opal needs descaling. ERD 0x9106 (previously
+         listed here as OIM_UNKNOWN9106) is the descale flag; gehomesdk names it
+         OIM_NEEDS_DESCALING and decodes it as a plain on/off byte. It is now
+         surfaced as a needsDescaling attribute (yes/no). Also added the two
+         newer status codes gehomesdk knows about: 7 "missing water source"
+         and 8 "lid open", which previously reported as "unknown".
 1.0.0  - craigde - Forked and updated for app-based architecture
 0.9.11 - tomw - Ice Maker support.
 
@@ -41,6 +47,7 @@ metadata
         attribute "filterStatus", "string"
         attribute "lightLevel", "string"
         attribute "currentStatus", "string"
+        attribute "needsDescaling", "enum", ["yes", "no"]
     }
 }
 
@@ -87,6 +94,18 @@ def parse(item)
 
         case OIM_STATUS:
             parseIntegerErd(item.value, 1, knownStatuses, "currentStatus")
+            break
+
+        case OIM_NEEDS_DESCALING:
+            try
+            {
+                def descale = decodeErdBool(hubitat.helper.HexUtils.hexStringToByteArray(item.value)?.getAt(0)) ? "yes" : "no"
+                sendEvent(name: "needsDescaling", value: descale)
+            }
+            catch (Exception e)
+            {
+                logDebug("OIM_NEEDS_DESCALING parse error: ${e.message}")
+            }
             break
 
         case OIM_POWER:
@@ -153,6 +172,8 @@ import groovy.transform.Field
         4: "add water",
         5: "ice bin missing",
         6: "idle",
+        7: "missing water source",
+        8: "lid open",
         255: "unknown"
     ]
 
@@ -160,6 +181,6 @@ import groovy.transform.Field
 @Field OIM_LIGHT_LEVEL = "0x9101"
 @Field OIM_UNKNOWN9102 = "0x9102"
 @Field OIM_FILTER_STATUS = "0x9104"
-@Field OIM_UNKNOWN9106 = "0x9106"
+@Field OIM_NEEDS_DESCALING = "0x9106"
 @Field OIM_POWER = "0x9107"
 @Field OIM_UNKNOWN9108 = "0x9108"
