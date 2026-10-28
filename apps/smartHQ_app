@@ -21,6 +21,18 @@ limitations under the License.
 
 Change history:
 
+1.0.14 - craigde - Connection watchdog. A WebSocket can stall without ever
+         closing: Hubitat still reports it open, but nothing arrives, so
+         appliances silently stop updating until someone runs reconnect.
+         Every 5 minutes the app now asks the cloud for the appliance list,
+         which it always answers, and renews the ERD subscription. If nothing
+         at all has arrived for 12 minutes, it reconnects. The appliance list
+         also carries each appliance's own online state, now reported on
+         every appliance as healthStatus (online/offline). After every
+         (re)connect the app also requests each appliance's full state, so
+         anything that changed while disconnected is picked up instead of
+         staying stale until it next changes. The watchdog can be turned off
+         in the app's settings.
 1.0.10 - craigde - Report requests the cloud rejects instead of dropping them.
          Every websocket#api reply carries its own HTTP-style status code, and
          a refused request still arrives as a perfectly ordinary message - so
@@ -99,6 +111,10 @@ def mainPage()
         {
             input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true
         }
+        section("Connection")
+        {
+            input name: "watchdogEnable", type: "bool", title: "Reconnect automatically if the cloud connection stops responding", defaultValue: true
+        }
         if(state.lastAuthError)
         {
             section("Login Status")
@@ -135,6 +151,11 @@ def mainPage()
 @Field cookie1       = "abgea_region=us-east-1; Domain=accounts.brillion.geappliances.com; HttpOnly; Path=/; Secure"
 @Field loginUrl      = "https://accounts.brillion.geappliances.com"
 
+// connection watchdog: reconnect once nothing has arrived for this long. The
+// watchdog prompts a reply every 5 minutes, so this allows for two missed
+// replies before acting.
+@Field watchdogStaleMinutes = 12
+
 def isLogEnable()
 {
     return logEnable
@@ -161,6 +182,15 @@ def initialize()
 {
     unschedule(initialize)
     closeEventSocket()
+
+    // start a fresh grace period so the watchdog doesn't count the time spent
+    // reconnecting as silence
+    state.lastMessageTime = now()
+    unschedule("watchdogCheck")
+    if(watchdogEnable != false)
+    {
+        runEvery5Minutes("watchdogCheck")
+    }
 
     def currentOp
 
@@ -314,6 +344,8 @@ def connectorDisconnected(String reason)
 
 def connectorParse(String message)
 {
+    state.lastMessageTime = now()
+
     logDebug("parse: ${message}")
 
     try
@@ -324,6 +356,36 @@ def connectorParse(String message)
     {
         logDebug("parse error: ${e.message}")
     }
+}
+
+// A WebSocket can stall without closing: Hubitat still reports it open, but
+// nothing arrives on it, so appliances silently stop updating. A healthy
+// connection can also be quiet for hours when no appliance is doing anything,
+// so silence alone proves nothing - prompt a reply instead. The appliance list
+// request is always answered, and its answer carries each appliance's online
+// state as well. If even that goes unanswered, the connection is dead.
+def watchdogCheck()
+{
+    def idleMinutes = ((now() - (state.lastMessageTime ?: 0)) / 60000).toInteger()
+    if(idleMinutes >= watchdogStaleMinutes)
+    {
+        log.warn "SmartHQ: nothing received from the cloud for ${idleMinutes} minutes; reconnecting"
+        initialize()
+        return
+    }
+
+    // While the socket is down the reconnect backoff is already in charge.
+    // Sending now would fail, and the failure path calls reinitialize(),
+    // which would keep pushing the pending retry further out.
+    if(getChildDevice(connectorDni())?.currentValue("connectionStatus") != "open")
+    {
+        return
+    }
+
+    // Renew the subscription too, in case the cloud has stopped forwarding
+    // appliance events while still answering requests on the same socket.
+    subscribe_all()
+    sendWssMap(buildWssMsg("GET", "/v1/appliance", "Watchdog-appliances"))
 }
 
 def reinitialize()
@@ -394,6 +456,22 @@ def manageChildDevice(id, details = null)
     }
 }
 
+// The appliance list reports whether each appliance itself is connected to
+// the GE cloud ("online": "ONLINE"), independent of our own connection.
+def updateHealthStatus(items)
+{
+    items?.each
+    {
+        if(null == it.online)
+        {
+            return
+        }
+
+        def health = (it.online.toString().toUpperCase() == "ONLINE") ? "online" : "offline"
+        manageChildDevice(it.applianceId)?.sendEvent(name: "healthStatus", value: health)
+    }
+}
+
 def childDni(id)
 {
     return "SmartHQ-${app.id}-${id}"
@@ -457,6 +535,18 @@ def interpretResponse(msgJson)
                 // create child devices for known appliances
                 logDebug msgJson.body?.items
                 createChildDevices(msgJson.body?.items)
+                updateHealthStatus(msgJson.body?.items)
+
+                // pull each appliance's full state: anything that changed
+                // while we were disconnected would otherwise stay stale until
+                // it next changes
+                msgJson.body?.items?.each { request_update(it.applianceId) }
+                break
+
+            case "Watchdog-appliances":
+                // periodic watchdog poll; just refresh online state. Don't go
+                // through createChildDevices, which resets device labels.
+                updateHealthStatus(msgJson.body?.items)
                 break
 
             case ~/.*-allErd.*/:

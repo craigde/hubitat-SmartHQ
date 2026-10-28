@@ -68,6 +68,8 @@ The bundle only contains the library, so it rarely needs updating — most ongoi
 
 - Appliance updates will generally come automatically without polling via WebSocket connection
 - Each appliance child device supports the `Refresh` command if you want to poll for current status
+- Each appliance has a `healthStatus` attribute (`online`/`offline`) showing whether the appliance itself is connected to GE's cloud, updated every 5 minutes
+- The app watches the cloud connection and reconnects by itself if it stops responding for 12 minutes. This can be turned off in the SmartHQ app under *Connection*. The SmartHQ Connector device's `connectionStatus` shows whether the connection is currently open
 - Most commands and attributes are self explanatory - try things out!
 
 ## Requesting New Appliance Support

@@ -40,6 +40,7 @@ metadata
         capability "FilterStatus"
         capability "Refresh"
         command "reconnect"
+        attribute "healthStatus", "enum", ["offline", "online"]
         capability "Switch"
         
         command "setLightLevel", [[name: "Light level*", type:"ENUM", constraints: lightLevelNames()]]

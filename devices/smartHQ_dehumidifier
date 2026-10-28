@@ -46,6 +46,7 @@ metadata
         capability "FilterStatus"
         capability "Refresh"
         command "reconnect"
+        attribute "healthStatus", "enum", ["offline", "online"]
         capability "RelativeHumidityMeasurement"
         capability "Switch"
         capability "TemperatureMeasurement"

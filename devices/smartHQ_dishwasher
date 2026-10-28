@@ -93,6 +93,7 @@ metadata
         capability "FilterStatus"
         capability "Refresh"
         command "reconnect"
+        attribute "healthStatus", "enum", ["offline", "online"]
         capability "Switch"
         
         command "adjustNumberOfPods", [[name:"Operation*", type:"ENUM", constraints: ["add","subtract","set"]], [name: "numberOfPods*", type:"NUMBER"]]
