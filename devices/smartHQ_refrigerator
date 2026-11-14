@@ -21,6 +21,12 @@ limitations under the License.
 
 Change history:
 
+(unreleased) - Newer-generation fridges (e.g. GE Profile PXD22BYPDFS) never send
+          0x1004/0x1005/0x1016. Parse what they do send, using gehomesdk's ERD
+          names: per-door status (0x120e/0x125c/0x125b fresh food, 0x120f freezer,
+          0x125d convertible drawer) plus a combined `contact`; cumulative energy
+          (0xd007, Wh) as `energy` in kWh; and 0x1272/0x1273 (unnamed in gehomesdk,
+          published hourly) as ambientTemperature (F) and ambientHumidity (%).
 1.0.0  - craigde - Forked and updated for app-based architecture
 0.9.3  - tomw - Added Microwave support.  Added Sabbath mode setting for refrigerator and oven.
 0.9.2  - tomw - Make child logging follow system device setting
@@ -37,6 +43,8 @@ metadata
         capability "Refresh"
         command "reconnect"
         capability "TemperatureMeasurement"
+        capability "ContactSensor"
+        capability "EnergyMeter"
 
         command "adjustSetpoints", [[name: "fridge*", type: "NUMBER"], [name: "freezer*", type: "NUMBER"]]
         command "setSabbathMode", [[name: "Sabbath mode enable?*", type:"ENUM", constraints: [true, false]]]
@@ -54,6 +62,14 @@ metadata
         attribute "airFilterStatus", "string"
         attribute "waterFilterStatus", "string"
         attribute "sabbathMode", "string"
+
+        attribute "freshFoodDoor1", "enum", ["open", "closed"]
+        attribute "freshFoodDoor2", "enum", ["open", "closed"]
+        attribute "freshFoodDoor3", "enum", ["open", "closed"]
+        attribute "freezerDoor", "enum", ["open", "closed"]
+        attribute "drawerDoor", "enum", ["open", "closed"]
+        attribute "ambientTemperature", "number"
+        attribute "ambientHumidity", "number"
     }
 }
 
@@ -103,6 +119,81 @@ def parse(item)
         case SABBATH_MODE:
             parseSabbathMode(item.value)
             break
+
+        case DOOR_FRESH_FOOD_1:
+        case DOOR_FRESH_FOOD_2:
+        case DOOR_FRESH_FOOD_3:
+        case DOOR_FREEZER_1:
+        case DOOR_CONVERTIBLE_1:
+            parseSingleDoor(item.value, switchVal)
+            break
+
+        case CUMULATIVE_ENERGY:
+            parseEnergy(item.value)
+            break
+
+        case AMBIENT_TEMPERATURE:
+        case AMBIENT_HUMIDITY:
+            parseAmbient(item.value, switchVal)
+            break
+    }
+}
+
+// One byte per door: 00 closed, 01 open. `contact` is open while any door is.
+def parseSingleDoor(value, erd)
+{
+    try
+    {
+        def attr = DOOR_ATTRIBUTES[erd]
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        if(!attr || bytes.size() < 1) { return }
+
+        def doors = state.doors ?: [:]
+        doors[attr] = (0 == bytes[0]) ? "closed" : "open"
+        state.doors = doors
+
+        sendEvent(name: attr, value: doors[attr])
+        sendEvent(name: "contact", value: doors.values().contains("open") ? "open" : "closed")
+    }
+    catch (Exception e)
+    {
+        logDebug("parse error: ${e.message}")
+    }
+}
+
+// u32 watt-hours since the fridge was made; reported in kWh like the plugs.
+def parseEnergy(value)
+{
+    try
+    {
+        def wh = Long.parseLong(value, 16)
+        sendEvent(name: "energy", value: (wh / 1000.0).setScale(3, BigDecimal.ROUND_HALF_UP), unit: "kWh")
+    }
+    catch (Exception e)
+    {
+        logDebug("parse error: ${e.message}")
+    }
+}
+
+// u16, hundredths of a degree F / of a percent.
+def parseAmbient(value, erd)
+{
+    try
+    {
+        def raw = Integer.parseInt(value, 16)
+        def v = (raw / 100.0).setScale(1, BigDecimal.ROUND_HALF_UP)
+        if(AMBIENT_TEMPERATURE == erd)
+        {
+            sendEvent(name: "ambientTemperature", value: v, unit: "F")
+        }
+        else
+        {
+            sendEvent(name: "ambientHumidity", value: v, unit: "%")
+        }
+    }
+    catch (Exception e)
+    {
+        logDebug("parse error: ${e.message}")
     }
 }
 
@@ -258,3 +349,20 @@ import groovy.transform.Field
 @Field CONVERTABLE_DRAWER_MODE = "0x1020"
 @Field INTERIOR_LIGHT = "0x1024"
 @Field PROXIMITY_LIGHT = "0x1028"
+
+// Newer-generation ERDs (see change history).
+@Field DOOR_FRESH_FOOD_1 = "0x120e"
+@Field DOOR_FRESH_FOOD_2 = "0x125c"
+@Field DOOR_FRESH_FOOD_3 = "0x125b"
+@Field DOOR_FREEZER_1 = "0x120f"
+@Field DOOR_CONVERTIBLE_1 = "0x125d"
+@Field CUMULATIVE_ENERGY = "0xd007"
+@Field AMBIENT_TEMPERATURE = "0x1272"
+@Field AMBIENT_HUMIDITY = "0x1273"
+@Field static final Map DOOR_ATTRIBUTES = [
+    "0x120e": "freshFoodDoor1",
+    "0x125c": "freshFoodDoor2",
+    "0x125b": "freshFoodDoor3",
+    "0x120f": "freezerDoor",
+    "0x125d": "drawerDoor"
+]
