@@ -21,6 +21,12 @@ limitations under the License.
 
 Change history:
 
+(unreleased) - Report cook time remaining, elapsed cook time and delay-start time
+          (minutes; 0 when not set), the display temperature, probe present and
+          probe temperature, and the oven light (with setUpperOvenLight /
+          setLowerOvenLight), for upper and lower ovens. Decoding follows
+          gehomesdk: timespans are minutes with 0xFFFF as none; light is
+          0 off, 1 high, 2 dim.
 1.0.0  - craigde - Added TemperatureMeasurement capability and F/C unit support
 0.9.3  - tomw - Added Microwave support.  Added Sabbath mode setting for refrigerator and oven.
 0.9.2  - tomw - Make child logging follow system device setting
@@ -54,6 +60,24 @@ metadata
         attribute "upperRawTemp", "number"
         attribute "upperTargetTemp", "number"
         attribute "upperTimer", "number"
+
+        attribute "upperCookTimeRemaining", "number"
+        attribute "upperElapsedCookTime", "number"
+        attribute "upperDelayTimeRemaining", "number"
+        attribute "upperDisplayTemp", "number"
+        attribute "upperProbePresent", "enum", ["yes", "no"]
+        attribute "upperProbeTemp", "number"
+        attribute "upperOvenLight", "enum", ["off", "dim", "high"]
+        attribute "lowerCookTimeRemaining", "number"
+        attribute "lowerElapsedCookTime", "number"
+        attribute "lowerDelayTimeRemaining", "number"
+        attribute "lowerDisplayTemp", "number"
+        attribute "lowerProbePresent", "enum", ["yes", "no"]
+        attribute "lowerProbeTemp", "number"
+        attribute "lowerOvenLight", "enum", ["off", "dim", "high"]
+
+        command "setUpperOvenLight", [[name: "Light level*", type:"ENUM", constraints: ["off", "dim", "high"]]]
+        command "setLowerOvenLight", [[name: "Light level*", type:"ENUM", constraints: ["off", "dim", "high"]]]
     }
 }
 
@@ -132,7 +156,71 @@ def parse(item)
         case TEMPERATURE_UNIT:
             parseTemperatureUnit(item.value)
             break
+
+        case UPPER_OVEN_COOK_TIME_REMAINING:
+        case UPPER_OVEN_ELAPSED_COOK_TIME:
+        case UPPER_OVEN_DELAY_TIME_REMAINING:
+        case LOWER_OVEN_COOK_TIME_REMAINING:
+        case LOWER_OVEN_ELAPSED_COOK_TIME:
+        case LOWER_OVEN_DELAY_TIME_REMAINING:
+            parseTimeSpan(item.value, switchVal)
+            break
+
+        case UPPER_OVEN_DISPLAY_TEMPERATURE:
+        case UPPER_OVEN_PROBE_DISPLAY_TEMP:
+        case LOWER_OVEN_DISPLAY_TEMPERATURE:
+        case LOWER_OVEN_PROBE_DISPLAY_TEMP:
+            parseOvenTemp(item.value, switchVal)
+            break
+
+        case UPPER_OVEN_PROBE_PRESENT:
+        case LOWER_OVEN_PROBE_PRESENT:
+            sendEvent(name: OVEN_EXTRA_ATTRIBUTES[switchVal],
+                      value: (hubitat.helper.HexUtils.hexStringToInt(item.value) != 0) ? "yes" : "no")
+            break
+
+        case UPPER_OVEN_LIGHT:
+        case LOWER_OVEN_LIGHT:
+            parseIntegerErd(item.value, 1, ovenLightLevels, OVEN_EXTRA_ATTRIBUTES[switchVal])
+            break
     }
+}
+
+// Minutes; 0xFFFF means none (no cook time, not cooking), reported as 0.
+def parseTimeSpan(value, erd)
+{
+    try
+    {
+        def minutes = hubitat.helper.HexUtils.hexStringToInt(value)
+        sendEvent(name: OVEN_EXTRA_ATTRIBUTES[erd], value: (minutes == 0xFFFF) ? 0 : minutes, unit: "min")
+    }
+    catch (Exception e)
+    {
+        logDebug("parse error: ${e.message}")
+    }
+}
+
+def parseOvenTemp(value, erd)
+{
+    try
+    {
+        sendEvent(name: OVEN_EXTRA_ATTRIBUTES[erd], value: hubitat.helper.HexUtils.hexStringToInt(value),
+                  unit: getTemperatureUnit())
+    }
+    catch (Exception e)
+    {
+        logDebug("parse error: ${e.message}")
+    }
+}
+
+def setUpperOvenLight(level)
+{
+    setIntegerErd(level, ovenLightLevels, UPPER_OVEN_LIGHT)
+}
+
+def setLowerOvenLight(level)
+{
+    setIntegerErd(level, ovenLightLevels, LOWER_OVEN_LIGHT)
 }
 
 def parseTemperatureUnit(value)
@@ -358,6 +446,30 @@ import groovy.transform.Field
 @Field UPPER_OVEN_RAW_TEMPERATURE = "0x510d"
 @Field UPPER_OVEN_LIGHT = "0x5111"
 @Field UPPER_OVEN_LIGHT_AVAILABILITY = "0x5112"
+
+@Field Map ovenLightLevels =
+    [
+        0: "off",
+        1: "high",
+        2: "dim"
+    ]
+
+@Field static final Map OVEN_EXTRA_ATTRIBUTES = [
+    "0x5104": "upperCookTimeRemaining",
+    "0x5108": "upperElapsedCookTime",
+    "0x5102": "upperDelayTimeRemaining",
+    "0x5109": "upperDisplayTemp",
+    "0x5103": "upperProbeTemp",
+    "0x5107": "upperProbePresent",
+    "0x5111": "upperOvenLight",
+    "0x5204": "lowerCookTimeRemaining",
+    "0x5208": "lowerElapsedCookTime",
+    "0x5202": "lowerDelayTimeRemaining",
+    "0x5209": "lowerDisplayTemp",
+    "0x5203": "lowerProbeTemp",
+    "0x5207": "lowerProbePresent",
+    "0x5211": "lowerOvenLight"
+]
 @Field WARMING_DRAWER_STATE = "0x5009"
 
 @Field COOKTOP_CONFIG = "0x551c"
