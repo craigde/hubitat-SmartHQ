@@ -88,6 +88,13 @@
       "required": false
     },
     {
+      "id": "fed6e7ea-389f-4706-88b1-baf2384cd9d5",
+      "name": "SmartHQ Toaster Oven",
+      "namespace": "craigde",
+      "location": "https://raw.githubusercontent.com/craigde/hubitat-SmartHQ/main/devices/smartHQ_toasterOven",
+      "required": false
+    },
+    {
       "id": "c9d0e1f2-a3b4-4c5d-6e7f-8a9b0c1d2e3f",
       "name": "SmartHQ Hood",
       "namespace": "craigde",
