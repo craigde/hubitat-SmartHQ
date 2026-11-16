@@ -80,6 +80,8 @@ If you would like to request support for a new appliance type or additional attr
 3. Operate the appliance manually and save the logs
 4. Open an issue on GitHub with the log and a description of what you were adjusting
 
+Before posting a log, check it for anything you'd rather keep private. Versions before 1.0.15 logged GE login tokens with debug logging on; if you're on an older version, update first or remove the lines starting `refresh =`, `auth =` and `wssInfo =`.
+
 ## Version History
 
 ### 1.0.0 (craigde)

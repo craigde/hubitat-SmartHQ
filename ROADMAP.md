@@ -62,16 +62,9 @@ Whenever `libraries/smarthqHelpers` changes, the `SmartHQHelpersLibrary.zip` bun
 
 Steps to regenerate are in the README under "Regenerating the Bundle".
 
-### Token / WSS credential debug logging (security)
+### Debug logging: auto-disable after 30 minutes
 
-Currently the app logs full OAuth token responses and WSS endpoint URLs (with embedded access tokens) when debug logging is on. This was kept enabled for v1 troubleshooting per the original review. **Before any wider release**, change these `logDebug` calls in `apps/smartHQ_app` to log success/failure messages only:
-
-```groovy
-def refresh = get_oauth2_token("refresh")
-logDebug("token refresh succeeded")  // NOT logDebug("refresh = ${refresh}")
-```
-
-Also consider auto-disabling `logEnable` after 30 minutes (standard Hubitat pattern):
+The login secrets that debug logging used to expose (token responses, the WebSocket URL, login redirects) were removed in 1.0.15, after a user posted live tokens in GitHub issue #24. Debug logging is still on by default and stays on, though, which is noisy. Consider the standard Hubitat pattern of switching it off after 30 minutes:
 
 ```groovy
 def updated() {
