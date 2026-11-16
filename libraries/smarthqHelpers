@@ -344,8 +344,11 @@ def parseControlLock(value)
 {
     try
     {
+        // 0x0004 has three values (gehomesdk ErdInterfaceLocked): 0 default,
+        // 1 locked, 2 unlocked. Only 1 means locked - treating any non-zero
+        // byte as locked reported an unlocked panel (2) as "locked".
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
-        def label = decodeErdBool(bytes?.getAt(0)) ? "locked" : "unlocked"
+        def label = (0x01 == bytes?.getAt(0)) ? "locked" : "unlocked"
         sendEvent(name: "controlPanel", value: label)
     }
     catch (Exception e)

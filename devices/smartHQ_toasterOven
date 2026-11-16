@@ -23,8 +23,15 @@ integration. The ERD codes and payload layouts come from gehomesdk
 (simbaja/gehome), the library behind Home Assistant's ge_home integration,
 which added toaster oven support in 2026.7.
 
+Confirmed on a Café Couture Toaster Oven with Air Fry (C9OAAAS2RS3), which
+the cloud reports as type "Toaster Oven" - the name this driver is matched
+by. GitHub issue #24 has the logs: the light (0x9201), current state
+(0x9209), convection (0x922b), time remaining (0x922f) and control lock
+(0x0004) all report as gehomesdk describes.
+
 Reports what the oven is doing (state, cook mode, temperature, cook time,
-time remaining, convection) and controls the light. It deliberately does not
+time remaining, convection) and controls the light and the control lock.
+It deliberately does not
 change cook settings: ge_home writes them through ERD 0x9208, but nothing
 confirms whether that write can start the oven heating, and like the oven
 driver this one does not start cooking remotely.
@@ -46,6 +53,7 @@ metadata
         capability "Switch"
 
         command "setLight", [[name: "Light*", type:"ENUM", constraints: ["on", "off"]]]
+        command "setControlLock", [[name: "Control Lockout?*", type:"ENUM", constraints: [true, false]]]
 
         attribute "currentState", "string"
         attribute "cookMode", "string"
@@ -55,6 +63,7 @@ metadata
         attribute "convection", "enum", ["on", "off"]
         attribute "remoteControl", "enum", ["enabled", "disabled"]
         attribute "light", "enum", ["on", "off"]
+        attribute "controlPanel", "enum", ["locked", "unlocked"]
     }
 }
 
@@ -112,6 +121,10 @@ def parse(item)
 
         case TOASTER_OVEN_REMOTE_ENABLED:
             parseBoolErd(item.value, "remoteControl", "enabled", "disabled")
+            break
+
+        case USER_INTERFACE_LOCKED:
+            parseControlLock(item.value)
             break
     }
 }

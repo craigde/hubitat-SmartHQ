@@ -61,7 +61,7 @@ The bundle only contains the library, so it rarely needs updating — most ongoi
 - Portable AC
 - Home Water Filter
 - Ice Maker (Opal Nugget)
-- Toaster Oven (new: status and light control; based on gehomesdk, not yet confirmed on a real oven)
+- Toaster Oven (new: status, light and control lock; reported by Café Couture ovens as "Toaster Oven")
 - Range Hood
 - Dehumidifier (driver contributed by Alan_F)
 
