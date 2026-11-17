@@ -21,12 +21,14 @@ limitations under the License.
 
 Change history:
 
-(unreleased) - Report cook time remaining, elapsed cook time and delay-start time
+1.0.15 - dannyjlaurence - Report cook time remaining, elapsed cook time and delay-start time
           (minutes; 0 when not set), the display temperature, probe present and
           probe temperature, and the oven light (with setUpperOvenLight /
           setLowerOvenLight), for upper and lower ovens. Decoding follows
           gehomesdk: timespans are minutes with 0xFFFF as none; light is
           0 off, 1 high, 2 dim.
+          (craigde: a probe-present reading of FF, gehomesdk's "not reported",
+          is ignored rather than read as a probe.)
 1.0.0  - craigde - Added TemperatureMeasurement capability and F/C unit support
 0.9.3  - tomw - Added Microwave support.  Added Sabbath mode setting for refrigerator and oven.
 0.9.2  - tomw - Make child logging follow system device setting

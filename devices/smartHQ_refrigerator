@@ -21,12 +21,14 @@ limitations under the License.
 
 Change history:
 
-(unreleased) - Newer-generation fridges (e.g. GE Profile PXD22BYPDFS) never send
+1.0.15 - dannyjlaurence - Newer-generation fridges (e.g. GE Profile PXD22BYPDFS) never send
           0x1004/0x1005/0x1016. Parse what they do send, using gehomesdk's ERD
           names: per-door status (0x120e/0x125c/0x125b fresh food, 0x120f freezer,
           0x125d convertible drawer) plus a combined `contact`; cumulative energy
           (0xd007, Wh) as `energy` in kWh; and 0x1272/0x1273 (unnamed in gehomesdk,
           published hourly) as ambientTemperature (F) and ambientHumidity (%).
+          (craigde: a door reading of FF, gehomesdk's "not reported", is ignored
+          rather than read as open.)
 1.0.0  - craigde - Forked and updated for app-based architecture
 0.9.3  - tomw - Added Microwave support.  Added Sabbath mode setting for refrigerator and oven.
 0.9.2  - tomw - Make child logging follow system device setting

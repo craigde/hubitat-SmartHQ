@@ -21,7 +21,7 @@ limitations under the License.
 
 Change history:
 
-(unreleased) - Hood fan and light on over-the-range models (e.g. Cafe CVM721), using
+1.0.15 - dannyjlaurence - Hood fan and light on over-the-range models (e.g. Cafe CVM721), using
           the same ERDs and value tables as the SmartHQ Hood driver: FanControl
           (speed / setSpeed / cycleSpeed) from HOOD_FAN_SPEED 0x5b00, and
           hoodLight / setHoodLight from HOOD_LIGHT_LEVEL 0x5b02.
