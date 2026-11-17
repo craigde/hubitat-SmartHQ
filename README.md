@@ -88,6 +88,10 @@ Before posting a log, check it for anything you'd rather keep private. Versions 
 
 Newest first. The full notes for each release are in HPM's release notes (`packageManifest.json`).
 
+### 1.0.16
+- Toaster oven: new `shade` and `slices` attributes for toast and bagel. These modes are set by shade and slice count, so `targetTemp` and `cookTime` read 0 when you choose them. Confirmed on a real cook (thanks hayfever-zz)
+- Credentials removed from the logs now show as `[redacted]`. The old `<redacted>` marker was hidden by Hubitat's log page
+
 ### 1.0.15
 - Newer refrigerators (e.g. GE Profile PXD22BYPDFS): status for each door, plus `contact` (open while any door is open), `energy` (kWh) and room `ambientTemperature` / `ambientHumidity`. Contributed by dannyjlaurence (PR #23)
 - Oven: cook time remaining, elapsed cook time, delay-start time, display temperature, probe present and probe temperature, and oven light control, for upper and lower ovens. Contributed by dannyjlaurence (PR #23)

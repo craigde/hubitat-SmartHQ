@@ -123,7 +123,7 @@ def sendWssMessage(msg)
 // token. Same rule as the app's redactSecrets.
 private redactSecrets(text)
 {
-    return text?.toString()?.replaceAll(/(?i)\b((?:access_token|refresh_token|code)[=:]\s*)[^&\s",\]]+/, '$1<redacted>')
+    return text?.toString()?.replaceAll(/(?i)\b((?:access_token|refresh_token|code)[=:]\s*)[^&\s",\]]+/, '$1[redacted]')
 }
 
 def parse(String message)
