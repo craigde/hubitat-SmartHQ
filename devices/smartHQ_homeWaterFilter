@@ -39,6 +39,7 @@ metadata
         capability "LiquidFlowRate"
         capability "Refresh"
         command "reconnect"
+        attribute "healthStatus", "enum", ["offline", "online"]
         capability "Valve"
         
         // descriptive names for open/close Valve commmands

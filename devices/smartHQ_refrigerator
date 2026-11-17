@@ -36,6 +36,7 @@ metadata
         capability "FilterStatus"
         capability "Refresh"
         command "reconnect"
+        attribute "healthStatus", "enum", ["offline", "online"]
         capability "TemperatureMeasurement"
 
         command "adjustSetpoints", [[name: "fridge*", type: "NUMBER"], [name: "freezer*", type: "NUMBER"]]

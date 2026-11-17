@@ -36,6 +36,7 @@ metadata
         capability "FilterStatus"
         capability "Refresh"
         command "reconnect"
+        attribute "healthStatus", "enum", ["offline", "online"]
         capability "Switch"
         capability "TemperatureMeasurement"
         capability "ThermostatCoolingSetpoint"
