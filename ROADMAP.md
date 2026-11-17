@@ -64,7 +64,7 @@ Steps to regenerate are in the README under "Regenerating the Bundle".
 
 ### Debug logging: auto-disable after 30 minutes
 
-The login secrets that debug logging used to expose (token responses, the WebSocket URL, login redirects) were removed in 1.0.15, after a user posted live tokens in GitHub issue #24. Debug logging is still on by default and stays on, though, which is noisy. Consider the standard Hubitat pattern of switching it off after 30 minutes:
+The login secrets that debug logging used to expose (token responses, the WebSocket URL, login redirects) were removed in 1.0.14, after a user posted live tokens in GitHub issue #24. Debug logging is still on by default and stays on, though, which is noisy. Consider the standard Hubitat pattern of switching it off after 30 minutes:
 
 ```groovy
 def updated() {

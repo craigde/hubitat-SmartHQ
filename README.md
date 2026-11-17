@@ -82,16 +82,19 @@ If you would like to request support for a new appliance type or additional attr
 3. Operate the appliance manually and save the logs
 4. Open an issue on GitHub with the log and a description of what you were adjusting
 
-Before posting a log, check it for anything you'd rather keep private. Versions before 1.0.15 logged GE login tokens with debug logging on; if you're on an older version, update first or remove the lines starting `refresh =`, `auth =` and `wssInfo =`.
+Before posting a log, check it for anything you'd rather keep private. Versions before 1.0.14 logged GE login tokens with debug logging on; if you're on an older version, update first or remove the lines starting `refresh =`, `auth =` and `wssInfo =`.
 
 ## Version History
 
 Newest first. The full notes for each release are in HPM's release notes (`packageManifest.json`).
 
-### Unreleased
+### 1.0.14
 - New: **Toaster Oven** driver. Shows state, cook mode, temperature, cook time, time remaining and convection, and controls the light and control lock. Confirmed on a Café Couture toaster oven (C9OAAAS2RS3). Requested in issue #24
 - Fix: the control lock showed "locked" when the panel was unlocked. This affected the dishwasher too
 - Security: debug logs no longer include GE login tokens, the WebSocket URL's access token or login authorization codes. If you have shared logs from an older version, change your GE password
+- New: connection watchdog. If the cloud connection stops responding for 12 minutes, the app reconnects by itself. Can be turned off in the SmartHQ app under *Connection*
+- New: `healthStatus` (online/offline) on every appliance, showing whether the appliance itself is connected to GE's cloud
+- After every connect or reconnect, the app fetches each appliance's full state, so changes made while disconnected show up straight away
 
 ### 1.0.13
 - Ice maker: new `needsDescaling` attribute (yes/no). Confirmed on an Opal 2.0
