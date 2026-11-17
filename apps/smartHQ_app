@@ -21,6 +21,10 @@ limitations under the License.
 
 Change history:
 
+1.0.16 - craigde - Log redacted credentials as [redacted] instead of
+         <redacted>. Hubitat's log page renders HTML, so the angle-bracketed
+         marker vanished and the endpoint line read "access_token=" as if
+         the token were empty.
 1.0.14 - craigde - Connection watchdog. A WebSocket can stall without ever
          closing: Hubitat still reports it open, but nothing arrives, so
          appliances silently stop updating until someone runs reconnect.
@@ -836,9 +840,12 @@ private skipMfaPrompt(sessionCookies, fallbackCsrf, paramsMap)
 // their appliances. This replaces the value of every credential-carrying
 // parameter (tokens, the authorization code) in a URL or message, keeping the
 // rest because it is what makes the line useful for troubleshooting.
+//
+// The marker is [redacted], not <redacted>: Hubitat's log page renders HTML,
+// so an angle-bracketed marker vanished and the line read as an empty value.
 def redactSecrets(text)
 {
-    return text?.toString()?.replaceAll(/(?i)\b((?:access_token|refresh_token|code)[=:]\s*)[^&\s",\]]+/, '$1<redacted>')
+    return text?.toString()?.replaceAll(/(?i)\b((?:access_token|refresh_token|code)[=:]\s*)[^&\s",\]]+/, '$1[redacted]')
 }
 
 // Parse the query string of an OAuth redirect Location into paramsMap.

@@ -27,10 +27,12 @@ Confirmed on a Café Couture Toaster Oven with Air Fry (C9OAAAS2RS3), which
 the cloud reports as type "Toaster Oven" - the name this driver is matched
 by. GitHub issue #24 has the logs: the light (0x9201), current state
 (0x9209), convection (0x922b), time remaining (0x922f) and control lock
-(0x0004) all report as gehomesdk describes.
+(0x0004) all report as gehomesdk describes, and a real toast cook (shade 7,
+2 slices) confirmed the cook setting layout (0x9207) byte for byte.
 
 Reports what the oven is doing (state, cook mode, temperature, cook time,
-time remaining, convection) and controls the light and the control lock.
+time remaining, toast shade and slice count, convection) and controls the
+light and the control lock.
 It deliberately does not
 change cook settings: ge_home writes them through ERD 0x9208, but nothing
 confirms whether that write can start the oven heating, and like the oven
@@ -38,6 +40,10 @@ driver this one does not start cooking remotely.
 
 Change history:
 
+1.0.16 - craigde - Report the toast/bagel shade (`shade`) and slice count
+                   (`slices`), from bytes 0 and 8 of the cook setting.
+                   Confirmed on a real cook: toast at shade 7 with 2 slices
+                   reads 07 ... 02. Both are 0 in modes that don't use them.
 1.0.0  - craigde - Initial toaster oven support.
 
 */
@@ -59,6 +65,8 @@ metadata
         attribute "cookMode", "string"
         attribute "targetTemp", "number"
         attribute "cookTime", "number"
+        attribute "shade", "number"
+        attribute "slices", "number"
         attribute "cookTimeRemaining", "number"
         attribute "convection", "enum", ["on", "off"]
         attribute "remoteControl", "enum", ["enabled", "disabled"]
@@ -153,12 +161,20 @@ def parseCookSetting(value)
             events << [name: "cookMode", value: "none"]
             events << [name: "targetTemp", value: 0, unit: "°F"]
             events << [name: "cookTime", value: 0, unit: "min"]
+            events << [name: "shade", value: 0]
+            events << [name: "slices", value: 0]
         }
         else
         {
             events << [name: "cookMode", value: knownCookModes[decodeErdInt(subBytes(bytes, 9, 1))] ?: "unknown"]
             events << [name: "targetTemp", value: decodeErdInt(subBytes(bytes, 2, 2)), unit: "°F"]
             events << [name: "cookTime", value: secondsToMinutes(decodeErdInt(subBytes(bytes, 4, 4))), unit: "min"]
+
+            // toast and bagel use these instead of temperature and time;
+            // other modes leave them at 0. gehomesdk calls the count
+            // item_count - for toast and bagel it is the number of slices.
+            events << [name: "shade", value: decodeErdInt(subBytes(bytes, 0, 1))]
+            events << [name: "slices", value: decodeErdInt(subBytes(bytes, 8, 1))]
         }
 
         flushEvents(events)
