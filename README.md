@@ -88,6 +88,12 @@ Before posting a log, check it for anything you'd rather keep private. Versions 
 
 Newest first. The full notes for each release are in HPM's release notes (`packageManifest.json`).
 
+### 1.0.15
+- Newer refrigerators (e.g. GE Profile PXD22BYPDFS): status for each door, plus `contact` (open while any door is open), `energy` (kWh) and room `ambientTemperature` / `ambientHumidity`. Contributed by dannyjlaurence (PR #23)
+- Oven: cook time remaining, elapsed cook time, delay-start time, display temperature, probe present and probe temperature, and oven light control, for upper and lower ovens. Contributed by dannyjlaurence (PR #23)
+- Over-the-range microwaves (e.g. Café CVM721): hood fan and hood light control. Contributed by dannyjlaurence (PR #23)
+- Door and probe readings that GE marks as "not reported" are ignored rather than read as open or present
+
 ### 1.0.14
 - New: **Toaster Oven** driver. Shows state, cook mode, temperature, cook time, time remaining and convection, and controls the light and control lock. Confirmed on a Café Couture toaster oven (C9OAAAS2RS3). Requested in issue #24
 - Fix: the control lock showed "locked" when the panel was unlocked. This affected the dishwasher too

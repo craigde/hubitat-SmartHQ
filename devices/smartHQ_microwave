@@ -21,6 +21,10 @@ limitations under the License.
 
 Change history:
 
+1.0.15 - dannyjlaurence - Hood fan and light on over-the-range models (e.g. Cafe CVM721), using
+          the same ERDs and value tables as the SmartHQ Hood driver: FanControl
+          (speed / setSpeed / cycleSpeed) from HOOD_FAN_SPEED 0x5b00, and
+          hoodLight / setHoodLight from HOOD_LIGHT_LEVEL 0x5b02.
 1.0.0  - craigde - Forked and updated for app-based architecture
 0.9.3  - tomw - Added Microwave support.  Added Sabbath mode setting for refrigerator and oven.
 
@@ -36,6 +40,7 @@ metadata
         command "reconnect"
         attribute "healthStatus", "enum", ["offline", "online"]
         capability "Switch"
+        capability "FanControl"
         
         command "adjustCookSetting", [[name: "powerLevel*", type: "NUMBER"], [name: "minutes*", type: "NUMBER"], [name: "seconds*", type: "NUMBER"]]
         command "adjustMicrowaveState", [[name: "Cook status*", type:"ENUM", description:"Cook status mode to set", constraints: cookStatusNames()]]    
@@ -44,6 +49,9 @@ metadata
         attribute "cookStatus", "enum", cookStatusNames()
         attribute "doorStatus", "enum", ["open", "closed"]
         attribute "powerLevel", "number"
+        attribute "hoodLight", "enum", ["off", "dim", "high"]
+
+        command "setHoodLight", [[name: "Light level*", type:"ENUM", constraints: ["off", "dim", "high"]]]
     }
 }
 
@@ -95,6 +103,15 @@ def parse(item)
         case MICROWAVE_STATE:
             parseMicrowaveState(item.value)
             break
+
+        case HOOD_FAN_SPEED:
+            parseIntegerErd(item.value, 1, knownFanSpeeds, "speed")
+            sendEvent(name: "supportedFanSpeeds", value: groovy.json.JsonOutput.toJson(knownFanSpeeds.collect { it.value }))
+            break
+
+        case HOOD_LIGHT_LEVEL:
+            parseIntegerErd(item.value, 1, knownLightLevels, "hoodLight")
+            break
     }
 }
 
@@ -130,6 +147,26 @@ def on()
 def off()
 {
     log.warn "${device.displayName}: switch is read-only; use adjustMicrowaveState to stop a running cycle"
+}
+
+// Hood fan (FanControl). The `switch` attribute stays the cook status, so the
+// fan is driven only through setSpeed / cycleSpeed. As in the Hood driver, the
+// real value arrives when the appliance echoes HOOD_FAN_SPEED back to parse().
+def setSpeed(fanspeed)
+{
+    setIntegerErd(fanspeed, knownFanSpeeds, HOOD_FAN_SPEED)
+}
+
+def cycleSpeed()
+{
+    def names = knownFanSpeeds.collect { it.value }
+    def i = names.indexOf(device.currentValue("speed"))
+    setSpeed(names[(i + 1) % names.size()])
+}
+
+def setHoodLight(level)
+{
+    setIntegerErd(level, knownLightLevels, HOOD_LIGHT_LEVEL)
 }
 
 def adjustMicrowaveState(state)
@@ -223,6 +260,24 @@ import groovy.transform.Field
         0xFF: "unknown"
     ]
 
+@Field Map knownFanSpeeds =
+    [
+        0: "off",
+        1: "low",
+        2: "medium",
+        3: "high",
+        4: "boost"
+    ]
+
+@Field Map knownLightLevels =
+    [
+        0: "off",
+        1: "dim",
+        2: "high"
+    ]
+
+@Field HOOD_FAN_SPEED = "0x5b00"
+@Field HOOD_LIGHT_LEVEL = "0x5b02"
 @Field MICROWAVE_RECIPE_STATUS = "0x5300"
 @Field MICROWAVE_COOK_SETTING = "0x5c00" 
 @Field MICROWAVE_AVAILABLE_MODES = "0x5c01"
