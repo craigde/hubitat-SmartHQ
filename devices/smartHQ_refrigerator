@@ -149,6 +149,10 @@ def parseSingleDoor(value, erd)
         def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
         if(!attr || bytes.size() < 1) { return }
 
+        // gehomesdk treats FF as "not reported", e.g. for a door the model
+        // doesn't have. Reading it as open would hold `contact` open.
+        if(0xFF == (bytes[0] & 0xFF)) { return }
+
         def doors = state.doors ?: [:]
         doors[attr] = (0 == bytes[0]) ? "closed" : "open"
         state.doors = doors

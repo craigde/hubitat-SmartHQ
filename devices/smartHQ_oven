@@ -176,14 +176,30 @@ def parse(item)
 
         case UPPER_OVEN_PROBE_PRESENT:
         case LOWER_OVEN_PROBE_PRESENT:
-            sendEvent(name: OVEN_EXTRA_ATTRIBUTES[switchVal],
-                      value: (hubitat.helper.HexUtils.hexStringToInt(item.value) != 0) ? "yes" : "no")
+            parseProbePresent(item.value, switchVal)
             break
 
         case UPPER_OVEN_LIGHT:
         case LOWER_OVEN_LIGHT:
             parseIntegerErd(item.value, 1, ovenLightLevels, OVEN_EXTRA_ATTRIBUTES[switchVal])
             break
+    }
+}
+
+// One byte: 00 no probe, anything else a probe. gehomesdk treats FF as "not
+// reported", which would otherwise read as a probe being present.
+def parseProbePresent(value, erd)
+{
+    try
+    {
+        def raw = hubitat.helper.HexUtils.hexStringToInt(value)
+        if(0xFF == raw) { return }
+
+        sendEvent(name: OVEN_EXTRA_ATTRIBUTES[erd], value: (raw != 0) ? "yes" : "no")
+    }
+    catch (Exception e)
+    {
+        logDebug("parse error: ${e.message}")
     }
 }
 
