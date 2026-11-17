@@ -61,6 +61,7 @@ The bundle only contains the library, so it rarely needs updating — most ongoi
 - Portable AC
 - Home Water Filter
 - Ice Maker (Opal Nugget)
+- Toaster Oven (new: status, light and control lock; reported by Café Couture ovens as "Toaster Oven")
 - Range Hood
 - Dehumidifier (driver contributed by Alan_F)
 
@@ -80,6 +81,8 @@ If you would like to request support for a new appliance type or additional attr
 2. Open the *Logs* view in another browser tab or window
 3. Operate the appliance manually and save the logs
 4. Open an issue on GitHub with the log and a description of what you were adjusting
+
+Before posting a log, check it for anything you'd rather keep private. Versions before 1.0.15 logged GE login tokens with debug logging on; if you're on an older version, update first or remove the lines starting `refresh =`, `auth =` and `wssInfo =`.
 
 ## Version History
 

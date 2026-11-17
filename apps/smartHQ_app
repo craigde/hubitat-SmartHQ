@@ -33,6 +33,16 @@ Change history:
          anything that changed while disconnected is picked up instead of
          staying stale until it next changes. The watchdog can be turned off
          in the app's settings.
+         Also: stop putting login secrets in the logs. With debug logging
+         on (the default), the app logged the full token response - access
+         token and refresh token - on every reconnect, plus the WebSocket
+         URL, which carries the access token, and the login redirects, which
+         carry the one-time authorization code. People paste their logs into
+         forum posts and GitHub issues, and a refresh token there lets anyone
+         control their appliances; that is exactly what happened in issue
+         #24. Those lines now log success or failure only, and the redirects
+         and endpoint are logged with credential values replaced by
+         <redacted>.
 1.0.10 - craigde - Report requests the cloud rejects instead of dropping them.
          Every websocket#api reply carries its own HTTP-style status code, and
          a refused request still arrives as a perfectly ordinary message - so
@@ -197,21 +207,24 @@ def initialize()
     try
     {
         currentOp = "token"
+        // Never log the token response or the endpoint as-is: both carry
+        // credentials (see redactSecrets).
         try
         {
-            def refresh = get_oauth2_token("refresh")
-            logDebug("refresh = ${refresh}")
+            get_oauth2_token("refresh")
+            logDebug("token refresh succeeded")
         }
         catch(Exception e)
         {
             // refresh_token failed for some reason, so try a full re-auth
-            def auth = get_oauth2_token("auth")
-            logDebug("auth = ${auth}")
+            logDebug("token refresh failed; trying a full login")
+            get_oauth2_token("auth")
+            logDebug("full login succeeded")
         }
 
         currentOp = "wss"
         def wssInfo = get_wss_credentials()
-        logDebug("wssInfo = ${wssInfo}")
+        logDebug("websocket endpoint = ${redactSecrets(wssInfo?.endpoint)}")
 
         if(!wssInfo?.endpoint)
         {
@@ -338,7 +351,7 @@ def connectorOpened()
 
 def connectorDisconnected(String reason)
 {
-    logDebug("connector disconnected: ${reason}")
+    logDebug("connector disconnected: ${redactSecrets(reason)}")
     reinitialize()
 }
 
@@ -705,7 +718,7 @@ def get_authorization_code()
         resp->
 
         def locVal = resp.headers['Location']?.value
-        logDebug("g_authenticate Location: ${locVal}")
+        logDebug("g_authenticate Location: ${redactSecrets(locVal)}")
 
         if(locVal?.contains("mfamethod") || locVal?.contains("security/add"))
         {
@@ -813,9 +826,19 @@ private skipMfaPrompt(sessionCookies, fallbackCsrf, paramsMap)
     {
         resp ->
         def locVal = resp.headers['Location']?.value
-        logDebug("skipMfa Location: ${locVal}")
+        logDebug("skipMfa Location: ${redactSecrets(locVal)}")
         parseRedirectParams(locVal, paramsMap)
     }
+}
+
+// Login secrets must never reach the logs: people paste their logs into forum
+// posts and GitHub issues, and a refresh token there gives anyone control of
+// their appliances. This replaces the value of every credential-carrying
+// parameter (tokens, the authorization code) in a URL or message, keeping the
+// rest because it is what makes the line useful for troubleshooting.
+def redactSecrets(text)
+{
+    return text?.toString()?.replaceAll(/(?i)\b((?:access_token|refresh_token|code)[=:]\s*)[^&\s",\]]+/, '$1<redacted>')
 }
 
 // Parse the query string of an OAuth redirect Location into paramsMap.

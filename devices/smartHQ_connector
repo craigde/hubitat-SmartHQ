@@ -69,7 +69,10 @@ def setEndpointAndConnect(url)
         return
     }
 
-    state.endpoint = url
+    // The endpoint URL carries the access token, so it is not kept: state is
+    // shown on this device's page, and people share screenshots of it. This
+    // also clears the copy older versions stored.
+    state.remove("endpoint")
 
     try
     {
@@ -77,9 +80,9 @@ def setEndpointAndConnect(url)
     }
     catch (Exception e)
     {
-        log.error "WebSocket connect failed: ${e}"
+        log.error "WebSocket connect failed: ${redactSecrets(e)}"
         sendEvent(name: "connectionStatus", value: "disconnected")
-        parent?.connectorDisconnected("connect-exception: ${e}")
+        parent?.connectorDisconnected("connect-exception: ${redactSecrets(e)}")
     }
 }
 
@@ -116,6 +119,13 @@ def sendWssMessage(msg)
     }
 }
 
+// An error can quote the URL it failed on, and the URL carries the access
+// token. Same rule as the app's redactSecrets.
+private redactSecrets(text)
+{
+    return text?.toString()?.replaceAll(/(?i)\b((?:access_token|refresh_token|code)[=:]\s*)[^&\s",\]]+/, '$1<redacted>')
+}
+
 def parse(String message)
 {
     parent?.connectorParse(message)
@@ -125,7 +135,7 @@ def webSocketStatus(String message)
 {
     if(parent?.isLogEnable())
     {
-        log.debug "webSocketStatus: ${message}"
+        log.debug "webSocketStatus: ${redactSecrets(message)}"
     }
 
     if(message?.startsWith("status: open"))

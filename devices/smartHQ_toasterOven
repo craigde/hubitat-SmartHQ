@@ -1,0 +1,290 @@
+/*
+
+Copyright 2026 - craigde
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+-------------------------------------------
+
+SmartHQ Toaster Oven
+--------------------
+Countertop toaster ovens, on the same ERD API as the rest of this
+integration. The ERD codes and payload layouts come from gehomesdk
+(simbaja/gehome), the library behind Home Assistant's ge_home integration,
+which added toaster oven support in 2026.7.
+
+Confirmed on a Café Couture Toaster Oven with Air Fry (C9OAAAS2RS3), which
+the cloud reports as type "Toaster Oven" - the name this driver is matched
+by. GitHub issue #24 has the logs: the light (0x9201), current state
+(0x9209), convection (0x922b), time remaining (0x922f) and control lock
+(0x0004) all report as gehomesdk describes.
+
+Reports what the oven is doing (state, cook mode, temperature, cook time,
+time remaining, convection) and controls the light and the control lock.
+It deliberately does not
+change cook settings: ge_home writes them through ERD 0x9208, but nothing
+confirms whether that write can start the oven heating, and like the oven
+driver this one does not start cooking remotely.
+
+Change history:
+
+1.0.0  - craigde - Initial toaster oven support.
+
+*/
+
+metadata
+{
+    definition(name: "SmartHQ Toaster Oven", namespace: "craigde", author: "craigde")
+    {
+        capability "Actuator"
+        capability "Refresh"
+        command "reconnect"
+        attribute "healthStatus", "enum", ["offline", "online"]
+        capability "Switch"
+
+        command "setLight", [[name: "Light*", type:"ENUM", constraints: ["on", "off"]]]
+        command "setControlLock", [[name: "Control Lockout?*", type:"ENUM", constraints: [true, false]]]
+
+        attribute "currentState", "string"
+        attribute "cookMode", "string"
+        attribute "targetTemp", "number"
+        attribute "cookTime", "number"
+        attribute "cookTimeRemaining", "number"
+        attribute "convection", "enum", ["on", "off"]
+        attribute "remoteControl", "enum", ["enabled", "disabled"]
+        attribute "light", "enum", ["on", "off"]
+        attribute "controlPanel", "enum", ["locked", "unlocked"]
+    }
+}
+
+#include craigde.smarthqHelpers
+
+// Force the SmartHQ app to re-authenticate and rebuild the shared cloud
+// connection. The whole integration shares one WebSocket (owned by the
+// connector child), so triggering this on any single appliance reconnects
+// them all. Exposed as a command so it can be driven from a rule (e.g. a
+// watchdog that fires after a period of no appliance activity).
+def reconnect()
+{
+    parent?.initialize()
+}
+
+def refresh()
+{
+    refreshAppliance()
+}
+
+def parse(item)
+{
+    if(!item)
+    {
+        return
+    }
+
+    logDebug(item)
+
+    switch(item.erd?.toLowerCase())
+    {
+        case TOASTER_OVEN_CURRENT_STATE:
+            def stateVal = parseIntegerErd(item.value, 1, knownStates, "currentState")
+            if(null != stateVal)
+            {
+                sendEvent(name: "switch", value: cookingStates.contains(stateVal) ? "on" : "off")
+            }
+            break
+
+        case TOASTER_OVEN_COOK_SETTING:
+            parseCookSetting(item.value)
+            break
+
+        case TOASTER_OVEN_COOK_TIME_REMAINING:
+            parseTimeRemaining(item.value)
+            break
+
+        case TOASTER_OVEN_LIGHT:
+            parseBoolErd(item.value, "light", "on", "off")
+            break
+
+        case TOASTER_OVEN_CONVECTION:
+            parseBoolErd(item.value, "convection", "on", "off")
+            break
+
+        case TOASTER_OVEN_REMOTE_ENABLED:
+            parseBoolErd(item.value, "remoteControl", "enabled", "disabled")
+            break
+
+        case USER_INTERFACE_LOCKED:
+            parseControlLock(item.value)
+            break
+    }
+}
+
+// The cook setting packs, in order (gehomesdk ToasterOvenCookSettingConverter):
+// shade (1 byte), size (1), temperature in F (2), cook time in seconds (4),
+// item count (1), cook mode (1), preferences (1), padding (1). Not every mode
+// uses every field; unused ones are zero.
+def parseCookSetting(value)
+{
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+        if(bytes.size() < 11)
+        {
+            logDebug("unexpected cook setting length: ${value}")
+            return
+        }
+
+        def events = []
+
+        if(bytes.toList().every { 0 == it })
+        {
+            // nothing selected. Without this an all-zero setting would read
+            // as mode 0, "air fry".
+            events << [name: "cookMode", value: "none"]
+            events << [name: "targetTemp", value: 0, unit: "°F"]
+            events << [name: "cookTime", value: 0, unit: "min"]
+        }
+        else
+        {
+            events << [name: "cookMode", value: knownCookModes[decodeErdInt(subBytes(bytes, 9, 1))] ?: "unknown"]
+            events << [name: "targetTemp", value: decodeErdInt(subBytes(bytes, 2, 2)), unit: "°F"]
+            events << [name: "cookTime", value: secondsToMinutes(decodeErdInt(subBytes(bytes, 4, 4))), unit: "min"]
+        }
+
+        flushEvents(events)
+    }
+    catch (Exception e)
+    {
+        logDebug("parseCookSetting error: ${e.message}")
+    }
+}
+
+def parseTimeRemaining(value)
+{
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+
+        // gehomesdk treats all-FF as "no timer"
+        def noTimer = bytes.toList().every { 0xFF == (it & 0xFF) }
+        def seconds = noTimer ? 0 : decodeErdInt(bytes)
+
+        sendEvent(name: "cookTimeRemaining", value: secondsToMinutes(seconds), unit: "min")
+    }
+    catch (Exception e)
+    {
+        logDebug("parseTimeRemaining error: ${e.message}")
+    }
+}
+
+def parseBoolErd(value, eventName, onLabel, offLabel)
+{
+    try
+    {
+        def bytes = hubitat.helper.HexUtils.hexStringToByteArray(value)
+
+        // gehomesdk treats FF as "not reported"
+        if(0xFF == (bytes[0] & 0xFF))
+        {
+            return
+        }
+
+        sendEvent(name: eventName, value: decodeErdBool(bytes[0]) ? onLabel : offLabel)
+    }
+    catch (Exception e)
+    {
+        logDebug("parseBoolErd error: ${e.message}")
+    }
+}
+
+// Round up, so a cook with 30 seconds left reads 1 rather than 0 - the way
+// the oven's own display counts down.
+private secondsToMinutes(seconds)
+{
+    return Math.ceil(seconds / 60.0).toInteger()
+}
+
+def setLight(value)
+{
+    if(!(value in ["on", "off"]))
+    {
+        logDebug("invalid light setting (${value})")
+        return
+    }
+
+    // the light reports on 0x9201 but is written through its control ERD
+    setBooleanErd(TOASTER_OVEN_LIGHT_CONTROL, "on" == value)
+}
+
+// The Switch capability requires on()/off(), but this driver does not start
+// or stop cooking remotely (see the header). The `switch` attribute is
+// read-only and reflects whether the oven is preheating or cooking.
+def on()
+{
+    log.warn "${device.displayName}: switch is read-only; the toaster oven cannot be started remotely"
+}
+
+def off()
+{
+    log.warn "${device.displayName}: switch is read-only; the toaster oven cannot be stopped remotely"
+}
+
+import groovy.transform.Field
+
+@Field Map knownStates =
+    [
+        0: "sleep",
+        1: "standby",
+        2: "initialization",
+        3: "cooking",
+        4: "preheating",
+        5: "idle",
+        6: "temperature achieved",
+        7: "cooking complete"
+    ]
+
+// states in which the oven is heating; these drive `switch`
+@Field List cookingStates = ["preheating", "cooking", "temperature achieved"]
+
+@Field Map knownCookModes =
+    [
+        0: "air fry",
+        1: "bake",
+        2: "broil",
+        3: "roast",
+        4: "reheat",
+        5: "warm",
+        6: "slow cook",
+        7: "dehydrate",
+        8: "proof",
+        9: "cookie",
+        10: "pizza",
+        11: "bagel",
+        12: "toast",
+        13: "crisp finish",
+        14: "cake",
+        15: "cookie with preferences",
+        16: "pizza with preferences",
+        17: "convection bake"
+    ]
+
+@Field TOASTER_OVEN_LIGHT = "0x9201"
+@Field TOASTER_OVEN_LIGHT_CONTROL = "0x9202"
+@Field TOASTER_OVEN_COOK_SETTING = "0x9207"
+@Field TOASTER_OVEN_COOK_SETTING_CONTROL = "0x9208"
+@Field TOASTER_OVEN_CURRENT_STATE = "0x9209"
+@Field TOASTER_OVEN_CONVECTION = "0x922b"
+@Field TOASTER_OVEN_COOK_TIME_REMAINING = "0x922f"
+
+// shared with the wall oven's upper cavity (gehomesdk UPPER_OVEN_REMOTE_ENABLED)
+@Field TOASTER_OVEN_REMOTE_ENABLED = "0x510a"
